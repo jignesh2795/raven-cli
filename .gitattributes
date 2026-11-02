@@ -1,0 +1,12 @@
+# Normalize line endings: LF in the repository for code and docs.
+* text=auto
+*.rs   text eol=lf
+*.toml text eol=lf
+*.md   text eol=lf
+*.py   text eol=lf
+*.lock text eol=lf
+# PowerShell scripts are Windows-only; CRLF in the working tree.
+*.ps1  text eol=crlf
+# Binary assets, if any are ever added.
+*.png binary
+*.ico binary
