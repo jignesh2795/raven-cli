@@ -44,19 +44,15 @@ static PATTERNS: LazyLock<Vec<Pattern>> = LazyLock::new(|| {
         "[REDACTED PRIVATE KEY]",
     );
     add(r"(?i)bearer\s+[A-Za-z0-9\-._~+/]+=*", "Bearer [REDACTED]");
-    add(
-        r"(?i)(https?://[^\s:/]+:)[^@\s]+@",
-        "${1}[REDACTED]@",
-    );
+    add(r"(?i)(https?://[^\s:/]+:)[^@\s]+@", "${1}[REDACTED]@");
 
     patterns
 });
 
 static ANSI_CSI: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\x1b\[[0-?]*[ -/]*[@-~]").expect("ansi csi regex"));
-static ANSI_OSC: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)").expect("ansi osc regex")
-});
+static ANSI_OSC: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)").expect("ansi osc regex"));
 static ANSI_SINGLE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\x1b[@-_]").expect("ansi single regex"));
 static C1_CSI: LazyLock<Regex> =

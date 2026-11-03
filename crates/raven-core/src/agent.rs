@@ -145,7 +145,12 @@ impl Agent {
 
             self.sink.append(
                 EventKind::ProviderRequest,
-                format!("request to {} ({})", self.provider.name(), self.provider.model()).as_str(),
+                format!(
+                    "request to {} ({})",
+                    self.provider.name(),
+                    self.provider.model()
+                )
+                .as_str(),
                 json!({
                     "provider": self.config.provider_name,
                     "model": self.config.model,
@@ -223,7 +228,9 @@ impl Agent {
                             return Err(error);
                         }
                     }
-                    Ok(ProviderEvent::Done { finish_reason: reason }) => {
+                    Ok(ProviderEvent::Done {
+                        finish_reason: reason,
+                    }) => {
                         turn_finish = reason;
                         break;
                     }
@@ -233,11 +240,8 @@ impl Agent {
                         } else {
                             (EventKind::Error, "provider stream failed")
                         };
-                        self.sink.append(
-                            kind,
-                            summary,
-                            json!({ "error": error.to_string() }),
-                        )?;
+                        self.sink
+                            .append(kind, summary, json!({ "error": error.to_string() }))?;
                         return Err(error);
                     }
                 }
@@ -250,7 +254,11 @@ impl Agent {
             }
 
             let tool_calls = build_tool_calls(pending, turn);
-            let assistant_text = if text.is_empty() { None } else { Some(text.clone()) };
+            let assistant_text = if text.is_empty() {
+                None
+            } else {
+                Some(text.clone())
+            };
 
             self.sink.append(
                 EventKind::AssistantMessage,
@@ -319,8 +327,7 @@ impl Agent {
                     Ok(args) => args,
                     Err(error) => {
                         let content = sanitize_text(&format!("ERROR: {error}"));
-                        self.observer
-                            .on_tool_result(&call.name, false, &content);
+                        self.observer.on_tool_result(&call.name, false, &content);
                         self.sink.append(
                             EventKind::ToolResult,
                             format!("tool {} failed", call.name).as_str(),
@@ -344,8 +351,7 @@ impl Agent {
 
                 let Some(tool) = self.tools.get(&call.name).cloned() else {
                     let content = sanitize_text(&format!("ERROR: unknown tool '{}'", call.name));
-                    self.observer
-                        .on_tool_result(&call.name, false, &content);
+                    self.observer.on_tool_result(&call.name, false, &content);
                     self.sink.append(
                         EventKind::ToolResult,
                         format!("tool {} failed", call.name).as_str(),
@@ -364,25 +370,25 @@ impl Agent {
                     continue;
                 };
 
-                let (content, ok, truncated) = if let Err(error) = self.policy.check_tool(tool.kind())
-                {
-                    (format!("ERROR: {error}"), false, false)
-                } else {
-                    let context = ToolContext {
-                        workspace: self.workspace.clone(),
-                        path_policy: self.path_policy.clone(),
-                        redactor: self.redactor.clone(),
-                        output_cap: self.output_cap,
-                    };
-                    match tool.call(args, &context).await {
-                        Ok(output) => {
-                            let redacted = self.redactor.redact(&output.content);
-                            let (capped, extra) = truncate_utf8(&redacted, self.output_cap);
-                            (capped.to_string(), true, output.truncated || extra)
+                let (content, ok, truncated) =
+                    if let Err(error) = self.policy.check_tool(tool.kind()) {
+                        (format!("ERROR: {error}"), false, false)
+                    } else {
+                        let context = ToolContext {
+                            workspace: self.workspace.clone(),
+                            path_policy: self.path_policy.clone(),
+                            redactor: self.redactor.clone(),
+                            output_cap: self.output_cap,
+                        };
+                        match tool.call(args, &context).await {
+                            Ok(output) => {
+                                let redacted = self.redactor.redact(&output.content);
+                                let (capped, extra) = truncate_utf8(&redacted, self.output_cap);
+                                (capped.to_string(), true, output.truncated || extra)
+                            }
+                            Err(error) => (format!("ERROR: {error}"), false, false),
                         }
-                        Err(error) => (format!("ERROR: {error}"), false, false),
-                    }
-                };
+                    };
                 let content = sanitize_text(&content);
 
                 let summary = summarize(&content);
@@ -455,9 +461,8 @@ fn parse_arguments(raw: &str) -> Result<Value> {
     if raw.trim().is_empty() {
         return Ok(Value::Object(Default::default()));
     }
-    serde_json::from_str(raw).map_err(|error| {
-        Error::Tool(format!("tool arguments are not valid JSON: {error}"))
-    })
+    serde_json::from_str(raw)
+        .map_err(|error| Error::Tool(format!("tool arguments are not valid JSON: {error}")))
 }
 
 fn summarize(content: &str) -> String {
@@ -473,8 +478,8 @@ fn summarize(content: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use async_trait::async_trait;
     use crate::provider::ProviderStream;
+    use async_trait::async_trait;
     use std::sync::Mutex;
 
     #[derive(Default)]
@@ -556,8 +561,6 @@ mod tests {
         assert!(matches!(error, Error::Cancelled));
 
         let events = sink.events.lock().unwrap();
-        assert!(events
-            .iter()
-            .any(|(kind, _)| *kind == EventKind::Cancelled));
+        assert!(events.iter().any(|(kind, _)| *kind == EventKind::Cancelled));
     }
 }

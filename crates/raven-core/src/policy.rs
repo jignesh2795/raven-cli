@@ -27,7 +27,9 @@ impl Default for Policy {
 
 impl Policy {
     pub fn read_only() -> Self {
-        Self { mode: PolicyMode::ReadOnly }
+        Self {
+            mode: PolicyMode::ReadOnly,
+        }
     }
 
     pub fn workspace_write() -> Self {
@@ -88,9 +90,7 @@ impl PathPolicy {
         }
 
         if looks_like_device_path(raw) {
-            return Err(Error::Policy(format!(
-                "device path is not allowed: {raw}"
-            )));
+            return Err(Error::Policy(format!("device path is not allowed: {raw}")));
         }
 
         let raw_path = Path::new(raw);
@@ -100,20 +100,15 @@ impl PathPolicy {
             self.root.join(raw_path)
         };
 
-        let canonical = dunce::canonicalize(&candidate).map_err(|error| {
-            Error::Tool(format!("cannot access '{}': {error}", raw))
-        })?;
+        let canonical = dunce::canonicalize(&candidate)
+            .map_err(|error| Error::Tool(format!("cannot access '{}': {error}", raw)))?;
 
         if !self.is_within(&canonical) {
-            return Err(Error::Policy(format!(
-                "path escapes the workspace: {raw}"
-            )));
+            return Err(Error::Policy(format!("path escapes the workspace: {raw}")));
         }
 
         if is_protected_path(&canonical) {
-            return Err(Error::Policy(format!(
-                "path is protected by policy: {raw}"
-            )));
+            return Err(Error::Policy(format!("path is protected by policy: {raw}")));
         }
 
         Ok(canonical)

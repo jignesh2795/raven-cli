@@ -103,9 +103,8 @@ impl Config {
             return Ok(Self::default());
         }
         let text = std::fs::read_to_string(&path)?;
-        toml::from_str(&text).map_err(|error| {
-            Error::Config(format!("invalid config '{}': {error}", path.display()))
-        })
+        toml::from_str(&text)
+            .map_err(|error| Error::Config(format!("invalid config '{}': {error}", path.display())))
     }
 
     pub fn resolve_provider(
@@ -178,9 +177,8 @@ pub fn config_path(explicit: Option<PathBuf>) -> Result<PathBuf> {
             return Ok(PathBuf::from(path));
         }
     }
-    let base = dirs::config_dir().ok_or_else(|| {
-        Error::Config("could not locate the user configuration directory".into())
-    })?;
+    let base = dirs::config_dir()
+        .ok_or_else(|| Error::Config("could not locate the user configuration directory".into()))?;
     Ok(base.join("raven").join("raven.toml"))
 }
 

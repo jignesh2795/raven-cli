@@ -13,8 +13,16 @@ pub fn run(config_path: Option<PathBuf>) -> Result<()> {
     let workspace = std::env::current_dir()?;
 
     println!("raven {}", env!("CARGO_PKG_VERSION"));
-    println!("os:        {} ({})", std::env::consts::OS, std::env::consts::ARCH);
-    println!("config:    {} [{}]", path.display(), if path.exists() { "found" } else { "not found" });
+    println!(
+        "os:        {} ({})",
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
+    println!(
+        "config:    {} [{}]",
+        path.display(),
+        if path.exists() { "found" } else { "not found" }
+    );
     println!("data:      {}", data.display());
     println!("workspace: {}", workspace.display());
     println!("git:       {}", git_version());

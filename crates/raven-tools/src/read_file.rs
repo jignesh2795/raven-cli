@@ -105,10 +105,7 @@ impl Tool for ReadFileTool {
             )));
         }
 
-        let limit = args
-            .limit
-            .unwrap_or(DEFAULT_LIMIT)
-            .clamp(1, MAX_LIMIT);
+        let limit = args.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
         let end = (start + limit).min(lines.len());
 
         let mut output = format!(
@@ -173,13 +170,16 @@ mod tests {
 
         let tool = ReadFileTool;
         let output = tool
-            .call(json!({ "path": "test.txt", "offset": 1, "limit": 2 }), &context(temp.path()))
+            .call(
+                json!({ "path": "test.txt", "offset": 1, "limit": 2 }),
+                &context(temp.path()),
+            )
             .await
             .unwrap();
 
         assert!(output.content.contains("1  alpha"));
         assert!(output.content.contains("2  OPENAI_API_KEY=[REDACTED]"));
         assert!(!output.content.contains("sk-1234567890"));
-        assert!(output.content.contains("3  omega") == false);
+        assert!(!output.content.contains("3  omega"));
     }
 }

@@ -60,12 +60,7 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn create(
-        root: &Path,
-        workspace: &Path,
-        provider: &str,
-        model: &str,
-    ) -> Result<Self> {
+    pub fn create(root: &Path, workspace: &Path, provider: &str, model: &str) -> Result<Self> {
         fs::create_dir_all(root.join("sessions"))?;
 
         let now = Utc::now();
@@ -174,12 +169,7 @@ impl Store {
             .map_err(|_| Error::Store("session metadata lock is poisoned".into()))
     }
 
-    pub fn append(
-        &self,
-        kind: EventKind,
-        summary: &str,
-        data: Value,
-    ) -> Result<Event> {
+    pub fn append(&self, kind: EventKind, summary: &str, data: Value) -> Result<Event> {
         let mut data = data;
         self.redactor.redact_json(&mut data);
         let summary = self.redactor.redact(summary);
@@ -207,13 +197,7 @@ impl Store {
         Ok(event)
     }
 
-    pub fn finish(
-        &self,
-        status: &str,
-        turns: usize,
-        usage: Usage,
-        cost_usd: f64,
-    ) -> Result<()> {
+    pub fn finish(&self, status: &str, turns: usize, usage: Usage, cost_usd: f64) -> Result<()> {
         {
             let mut meta = self
                 .meta
@@ -255,10 +239,7 @@ impl EventSink for Store {
 
 pub fn read_events(root: &Path, session_id: &str) -> Result<Vec<Event>> {
     validate_session_id(session_id)?;
-    let path = root
-        .join("sessions")
-        .join(session_id)
-        .join("events.jsonl");
+    let path = root.join("sessions").join(session_id).join("events.jsonl");
     let reader = BufReader::new(File::open(&path)?);
     let mut events = Vec::new();
     for (index, line) in reader.lines().enumerate() {
@@ -309,7 +290,7 @@ pub fn list_sessions(root: &Path, limit: usize) -> Result<Vec<SessionMeta>> {
         sessions.push(meta);
     }
 
-    sessions.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+    sessions.sort_by_key(|session| std::cmp::Reverse(session.created_at));
     sessions.truncate(limit);
     Ok(sessions)
 }
@@ -319,13 +300,11 @@ fn validate_session_id(session_id: &str) -> Result<()> {
         || session_id.contains("..")
         || session_id.contains('/')
         || session_id.contains('\\')
-        || !session_id
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || character == '-' || character == '_')
+        || !session_id.chars().all(|character| {
+            character.is_ascii_alphanumeric() || character == '-' || character == '_'
+        })
     {
-        return Err(Error::Store(format!(
-            "invalid session id: {session_id:?}"
-        )));
+        return Err(Error::Store(format!("invalid session id: {session_id:?}")));
     }
     Ok(())
 }
@@ -353,13 +332,7 @@ mod tests {
     #[test]
     fn writes_verifiable_chain_and_redacts() {
         let temp = tempfile::tempdir().unwrap();
-        let store = Store::create(
-            temp.path(),
-            temp.path(),
-            "test",
-            "model",
-        )
-        .unwrap();
+        let store = Store::create(temp.path(), temp.path(), "test", "model").unwrap();
         store
             .append(
                 EventKind::Notice,

@@ -6,11 +6,7 @@ use raven_core::Result;
 
 const MAX_AGENTS_BYTES: usize = 32 * 1024;
 
-pub fn build(
-    workspace: &Path,
-    path_policy: &PathPolicy,
-    redactor: &Redactor,
-) -> Result<String> {
+pub fn build(workspace: &Path, path_policy: &PathPolicy, redactor: &Redactor) -> Result<String> {
     let agents_md = read_instructions(workspace, path_policy, redactor);
 
     let mut prompt = format!(

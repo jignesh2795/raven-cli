@@ -20,9 +20,7 @@ pub fn resolve_key(
     let env_name = api_key_env_override
         .map(str::to_string)
         .or_else(|| provider.api_key_env.clone());
-    let env_hint = env_name
-        .clone()
-        .unwrap_or_else(|| "RAVEN_API_KEY".into());
+    let env_hint = env_name.clone().unwrap_or_else(|| "RAVEN_API_KEY".into());
     if let Some(env_name) = env_name {
         if let Ok(key) = std::env::var(&env_name) {
             if !key.trim().is_empty() {
@@ -40,9 +38,7 @@ pub fn resolve_key(
             } else {
                 Err(Error::Config(format!(
                     "no API key for '{}'; run `raven auth set {}` or set {}",
-                    provider.name,
-                    provider.name,
-                    env_hint
+                    provider.name, provider.name, env_hint
                 )))
             }
         }
@@ -78,7 +74,7 @@ pub fn set(provider: &str, read_stdin: bool) -> Result<()> {
 
 pub fn status(config: &Config) -> Result<()> {
     let providers = config.known_provider_names();
-    println!("{:<12} {:<12} {}", "PROVIDER", "CREDENTIAL", "SOURCE");
+    println!("{:<12} {:<12} SOURCE", "PROVIDER", "CREDENTIAL");
     for provider in providers {
         let env_name = config
             .providers
@@ -117,11 +113,7 @@ pub fn delete(provider: &str) -> Result<()> {
     match entry(provider)?.delete_credential() {
         Ok(()) => println!("deleted key for {provider}"),
         Err(keyring::Error::NoEntry) => println!("no stored key for {provider}"),
-        Err(error) => {
-            return Err(Error::Config(format!(
-                "could not delete API key: {error}"
-            )))
-        }
+        Err(error) => return Err(Error::Config(format!("could not delete API key: {error}"))),
     }
     Ok(())
 }

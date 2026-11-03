@@ -77,8 +77,7 @@ impl Tool for ListDirTool {
             .git_global(true)
             .git_exclude(true)
             .filter_entry(|entry| {
-                entry.file_name().to_string_lossy() != ".git"
-                    && !is_protected_path(entry.path())
+                entry.file_name().to_string_lossy() != ".git" && !is_protected_path(entry.path())
             })
             .build();
 
@@ -102,10 +101,7 @@ impl Tool for ListDirTool {
             if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
                 entries.push(format!("{relative}/"));
             } else {
-                let size = entry
-                    .metadata()
-                    .map(|metadata| metadata.len())
-                    .unwrap_or(0);
+                let size = entry.metadata().map(|metadata| metadata.len()).unwrap_or(0);
                 entries.push(format!("{relative} ({size} bytes)"));
             }
         }
@@ -125,9 +121,7 @@ impl Tool for ListDirTool {
         };
 
         if truncated {
-            output.push_str(&format!(
-                "\n[listing truncated at {MAX_ENTRIES} entries]\n"
-            ));
+            output.push_str(&format!("\n[listing truncated at {MAX_ENTRIES} entries]\n"));
         }
 
         let output = sanitize_text(&output);

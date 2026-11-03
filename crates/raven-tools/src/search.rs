@@ -175,9 +175,7 @@ impl Tool for SearchTool {
         };
 
         if truncated {
-            output.push_str(&format!(
-                "\n[results truncated at {max_results} matches]\n"
-            ));
+            output.push_str(&format!("\n[results truncated at {max_results} matches]\n"));
         }
 
         let output = sanitize_text(&output);
@@ -198,5 +196,3 @@ fn matches_glob(glob: &GlobMatcher, path: &std::path::Path, root: &std::path::Pa
         .map(|name| glob.is_match(std::path::Path::new(name)))
         .unwrap_or(false)
 }
-
-

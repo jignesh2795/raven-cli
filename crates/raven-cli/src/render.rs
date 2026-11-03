@@ -27,7 +27,10 @@ impl ConsoleObserver {
         if self.json {
             return;
         }
-        let mut line_start = self.line_start.lock().unwrap_or_else(|error| error.into_inner());
+        let mut line_start = self
+            .line_start
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         if !*line_start {
             println!();
             *line_start = true;

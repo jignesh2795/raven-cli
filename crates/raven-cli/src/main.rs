@@ -284,12 +284,7 @@ async fn cmd_run(args: RunArgs, config_path: Option<PathBuf>) -> Result<ExitCode
 
     match agent.run(prompt).await {
         Ok(summary) => {
-            store.finish(
-                "completed",
-                summary.turns,
-                summary.usage,
-                summary.cost_usd,
-            )?;
+            store.finish("completed", summary.turns, summary.usage, summary.cost_usd)?;
             report_success(&summary, store.session_id(), args.json);
             Ok(ExitCode::SUCCESS)
         }
@@ -339,11 +334,7 @@ fn report_success(summary: &RunSummary, session_id: &str, json_output: bool) {
     };
     eprintln!(
         "\nsession {} · {} turns · {} in / {} out · {}",
-        session_id,
-        summary.turns,
-        summary.usage.input_tokens,
-        summary.usage.output_tokens,
-        cost
+        session_id, summary.turns, summary.usage.input_tokens, summary.usage.output_tokens, cost
     );
 }
 

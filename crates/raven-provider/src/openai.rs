@@ -78,13 +78,7 @@ impl OpenAiProvider {
             body["stream_options"] = json!({ "include_usage": true });
         }
         if !request.tools.is_empty() {
-            body["tools"] = Value::Array(
-                request
-                    .tools
-                    .iter()
-                    .map(tool_json)
-                    .collect::<Vec<_>>(),
-            );
+            body["tools"] = Value::Array(request.tools.iter().map(tool_json).collect::<Vec<_>>());
         }
         if let Some(temperature) = request.temperature {
             body["temperature"] = json!(temperature);
@@ -130,10 +124,8 @@ impl OpenAiProvider {
                     if attempt + 1 == MAX_ATTEMPTS {
                         break;
                     }
-                    tokio::time::sleep(Duration::from_secs_f64(
-                        0.5 * 2_f64.powi(attempt as i32),
-                    ))
-                    .await;
+                    tokio::time::sleep(Duration::from_secs_f64(0.5 * 2_f64.powi(attempt as i32)))
+                        .await;
                 }
                 Err(error) => {
                     return Err(Error::Provider(format!(
@@ -299,7 +291,8 @@ fn parse_chunk(value: &Value, model: &str, provider_name: &str) -> Result<Parsed
                         let index = tool_call
                             .get("index")
                             .and_then(Value::as_u64)
-                            .unwrap_or(fallback_index as u64) as usize;
+                            .unwrap_or(fallback_index as u64)
+                            as usize;
                         let id = tool_call
                             .get("id")
                             .and_then(Value::as_str)

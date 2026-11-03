@@ -151,3 +151,7 @@ violations are audited and denied.
 | 2026-11-02 | `scripts/e2e.ps1` (release binary) | Pass, 2 turns, 342 tokens, `$0.0004` |
 | 2026-11-02 | `raven doctor` | Config/data/workspace/providers/sandbox reported |
 | 2026-11-02 | Codex Windows sandbox re-check | Native backends exist; positioning revised |
+| 2026-11-03 | `cargo fmt --all -- --check` | Pass (rustfmt 1.99.1) |
+| 2026-11-03 | `cargo clippy --workspace --all-targets -- -D warnings` | Clean (clippy 1.99.1) |
+| 2026-11-03 | `cargo test --workspace` after formatting | 17 passed |
+| 2026-11-03 | `scripts/e2e.ps1` after formatting | Pass |
