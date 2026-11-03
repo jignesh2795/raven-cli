@@ -1,6 +1,6 @@
 # Milestones — Raven CLI
 
-Status as of **2026-11-02**, version **0.1.0**. The plan is deliberately
+Status as of **2026-11-03**, version **0.2.0**. The plan is deliberately
 incremental: prove the provider loop and honest accounting before adding
 capabilities that need containment.
 

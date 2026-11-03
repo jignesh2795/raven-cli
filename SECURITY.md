@@ -11,21 +11,22 @@ include real credentials. No public disclosure before a fix is available.
 
 ## Status
 
-- **Version:** 0.1.0 (M1)
+- **Version:** 0.2.0 (M1)
 - **Execution mode:** file writes under the `workspace-write` policy. Every edit
   is exact search/replace, atomic, hash-verified, and shown to the human for
   approval before it is written. No command execution, no agent-initiated child
   processes, no network tools. `doctor` runs `git --version` as a version probe.
 - **OS sandbox:** not implemented. `raven doctor` reports MXC/AppContainer as
   *planned*, not available.
-- **Guarantees below are scoped to M0.** The M3 sandbox guarantees are not in
+- **Guarantees below are scoped to M1.** The M3 sandbox guarantees are not in
   effect yet.
 
 ## Security modes
 
 | Mode | Status | What it means |
 | --- | --- | --- |
-| read-only (M0) | **Current** | Only read/list/search tools. No writes or agent-initiated child processes. Policy is in-process. |
+| read-only | **Available** | Opt in with `--read-only` or `policy = "read-only"`. Only read/list/search tools; no write tool is even registered. |
+| workspace-write (M1) | **Default** | Read plus exact search/replace edits, each previewed as a diff and approved before it is written. Policy is in-process. |
 | best-effort (M2) | Planned | Policy + audit around command execution. **Not a security boundary.** |
 | `mxc` (M3) | Planned | Microsoft Execution Containers. Preferred OS boundary where supported. |
 | `appcontainer` (M3) | Planned | AppContainer + Job Object + restricted token fallback. OS boundary with a compatibility cost. |
@@ -35,12 +36,34 @@ include real credentials. No public disclosure before a fix is available.
 A weaker mode must never be displayed as equivalent to a stronger one. `doctor`
 reports the actual backend and its limits.
 
-## M0 guarantees (implemented)
+## M1 guarantees (implemented)
 
-1. **No mutation capabilities.** Only `read_file`, `list_dir`, and
-   `search_files` are registered. The policy rejects write, execute, and
-   network tool kinds. The agent loop starts no child processes; `doctor` runs
-   only `git --version`.
+1. **Writes are human-authorized.** No file change happens without a decision at
+   the approval prompt (or an explicit `--yes`). A non-interactive run without
+   `--yes` applies nothing and reports the denial instead. The CLI's approver is
+   always installed; the agent's built-in default is `DenyAll`, so a missing
+   wiring denies rather than writes silently.
+2. **No execution capabilities.** `edit_file` and `create_file` are the only
+   write tools. The policy rejects execute and network tool kinds. The agent loop
+   starts no child processes; `doctor` runs only `git --version`.
+3. **Atomic, verified writes.** Each edit is written to a temporary file, synced,
+   verified byte-for-byte, then swapped in with `ReplaceFileW` (existing target)
+   or `MoveFileExW` with `MOVEFILE_WRITE_THROUGH` (new target). There is no
+   delete-then-rename fallback: if the swap cannot be atomic, it fails and the
+   original is untouched. The pre-image hash is re-checked between approval and
+   the swap, and the result is re-read and hash-compared afterwards.
+4. **Exact edits only.** `edit_file` replaces exact text that must occur exactly
+   once unless `replace_all` is set; there are no line-number patches and no
+   whole-file rewrites. The UTF-8 BOM and the file's dominant line-ending style
+   are preserved. `create_file` never overwrites an existing path.
+5. **Workspace confinement on writes.** Write paths resolve the parent through
+   canonicalization (so symlinks and junctions are followed and checked), reject
+   protected names, and normalize `.env::$DATA`, trailing-dot, and trailing-space
+   bypasses. Reserved Windows device names and alternate-data-stream colons are
+   refused.
+6. **Audit of every change.** Each applied edit appends an `edit_applied` event
+   carrying the path, before/after SHA-256 hashes, added/removed counts, and the
+   redacted diff.
 2. **Workspace confinement.** Tool paths are canonicalized and confined to the
    workspace root. Traversal, device paths, named pipes, `.git` components, and
    secret-bearing filenames (`.env*`, private keys, `.npmrc`, `.pypirc`,
@@ -53,9 +76,10 @@ reports the actual backend and its limits.
    event log.
 5. **Redaction before egress and persistence.** Common API keys, JWTs, bearer
    tokens, private keys, and URL credentials are redacted before tool results
-   are sent to the provider, written to the event log, or rendered. This is
-   pattern-based and best-effort. `redact = false` turns this off entirely;
-   it is a debugging escape hatch, not a supported production setting.
+   are sent to the provider, written to the event log, rendered, or shown in an
+   approval diff. This is pattern-based and best-effort. `redact = false` turns
+   this off entirely; it is a debugging escape hatch, not a supported
+   production setting.
 6. **Terminal safety.** ANSI CSI/OSC and other control characters are stripped
    from file content, tool output, and streamed model text before it reaches the
    terminal or JSON output.
@@ -71,7 +95,7 @@ reports the actual backend and its limits.
 10. **No daemon.** The CLI opens no listening socket. Provider traffic is the
     only outbound network path.
 
-## M0 non-guarantees (explicitly not claimed)
+## M1 non-guarantees (explicitly not claimed)
 
 - **No OS containment boundary.** Path policy and redaction live in the same
   process as the agent. A compromised binary or dependency can bypass both.
@@ -88,7 +112,7 @@ reports the actual backend and its limits.
   belongs with the M3 sandbox.
 - **No crash-dump or memory protection.** Keys exist in process memory and HTTP
   headers. Memory zeroization, dump exclusion, and provider-side retention are
-  out of scope for M0.
+  out of scope for M1.
 - **Tamper-evident, not tamper-proof.** An attacker with write access to the
   session directory can rewrite the entire chain.
 - **Endpoint trust is the user's choice.** Content sent to a configured provider
@@ -96,8 +120,9 @@ reports the actual backend and its limits.
   system trust store; there is no certificate pinning.
 - **Prompt injection is mitigated, not solved.** Repository content is labeled
   untrusted and cannot grant capabilities, but a model can still be induced to
-  read and summarize files the policy allows. The read-only tool set limits
-  impact; it does not eliminate data disclosure.
+  read files the policy allows, or to propose an edit it presents as useful.
+  The approval prompt is the last barrier, not a detector. Data disclosure and
+  bad edits the user approves are both possible.
 - **Supply chain is not attested.** Dependencies are version-locked by
   `Cargo.lock`, but there is no reproducible-build attestation or signed release
   yet.

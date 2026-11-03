@@ -3,12 +3,13 @@
 Windows-first, provider-neutral coding agent. One Rust binary, no runtime, no
 daemon, no WSL requirement.
 
-> **Status: M0 implemented — read-only.**
-> Raven can stream from an OpenAI-compatible provider and inspect a workspace
-> with three read-only tools. It cannot edit files, execute commands, run tests,
-> use MCP, or create git checkpoints yet. There is no OS sandbox because the
-> agent has no command-execution tool; the only child process is `git --version`
-> in `doctor`. See [Security posture](#security-posture-m0).
+> **Status: M1 implemented — streaming, reading, and exact file edits.**
+> Raven streams from an OpenAI-compatible provider, inspects a workspace with
+> three read-only tools, and applies exact search/replace edits. Every edit is
+> atomic, hash-verified, shown to you as a diff, and requires approval before it
+> is written (`--yes` skips the prompt; non-interactive runs fail closed). It
+> cannot execute commands, run tests, use MCP, or create git checkpoints yet.
+> There is still no OS sandbox — see [Security posture](#security-posture-m1).
 
 ## Why Raven
 
@@ -31,17 +32,27 @@ out-sandbox Codex. The bet is different:
 The sandbox research that shaped this positioning is in
 [`docs/codex-windows-status.md`](docs/codex-windows-status.md).
 
-## What works in M0
+## What works in M1
 
 - Streaming chat completions over the OpenAI-compatible `/chat/completions`
   SSE protocol, with tool-call delta assembly.
 - Tool loop with `read_file`, `list_dir`, and `search_files` (regex).
-- Workspace path policy: canonicalized paths, no traversal, no device paths,
-  denylist for `.git`, `.env*`, keys, and credential files.
+- Exact file edits: `edit_file` (uniqueness-checked search/replace) and
+  `create_file` (never overwrites). UTF-8 BOM and line-ending style are
+  preserved, writes are atomic (`ReplaceFileW`/`MoveFileExW`), and the result is
+  re-read and hash-verified. Before/after SHA-256 hashes land in the audit log.
+- Approval gate: every change is previewed as a unified diff and needs
+  `y`/`n`/`a`. `--yes` approves unattended; a non-interactive run without
+  `--yes` applies nothing.
+- `--read-only` refuses all writes for a session; `policy = "read-only"` does it
+  in `raven.toml`.
+- Workspace path policy for writes: canonicalized parents, protected-name
+  normalization (including `.env::$DATA` and trailing-dot bypasses), reserved
+  Windows names, symlinks and junctions resolved before the check.
 - Secret redaction for common API keys, JWTs, bearer tokens, private keys, and
   URL credentials. Tool results and repository instructions are redacted before
-  provider egress; event data is redacted before log writes. User prompts are
-  sent as typed.
+  provider egress; event data is redacted before log writes. Approval diffs are
+  redacted too. User prompts are sent as typed.
 - Terminal escape stripping and output caps for untrusted file content, tool
   output, and streamed model text.
 - Ctrl+C cancellation (second Ctrl+C exits immediately).
@@ -52,15 +63,17 @@ The sandbox research that shaped this positioning is in
 - Human-readable stream output and versioned JSONL for automation.
 - `doctor`, `init`, `auth`, `sessions`, and `show` commands.
 - End-to-end smoke test against a local mock provider.
+- Secret canary suite proving planted credentials never reach a provider
+  payload, the audit log, or an approval diff.
 
-Not implemented yet: edits, command execution, OS sandboxing, git checkpoints,
+Not implemented yet: command execution, OS sandboxing, git checkpoints,
 MCP, skills, plugins, TUI, provider cassette record/replay.
 
 ## Quickstart
 
 ### 1. Prerequisites
 
-- Rust MSVC toolchain (1.80+; tested with 1.91.1)
+- Rust MSVC toolchain (1.80+; tested with 1.99.1)
 - Visual Studio Build Tools with MSVC x64 and the Windows 10/11 SDK
 - Python 3 only for the end-to-end test
 
@@ -128,7 +141,7 @@ raven show <session-id>
 
 | Command | Purpose |
 | --- | --- |
-| `raven run [OPTIONS] <PROMPT>...` | Run one read-only agent turn. |
+| `raven run [OPTIONS] <PROMPT>...` | Run one agent turn: reads, and exact edits with approval. |
 | `raven init [--force]` | Write a sample `raven.toml`. |
 | `raven auth set <provider> [--stdin]` | Store a key in Credential Manager. |
 | `raven auth status` | Show which providers have credentials. |
@@ -147,6 +160,8 @@ raven show <session-id>
 | `--base-url <URL>` | Override the OpenAI-compatible base URL. |
 | `--api-key-env <VAR>` | Read the key from this environment variable. |
 | `--max-turns <N>` | Agent loop limit. Default 12. |
+| `--read-only` | Refuse every file write this run, ignoring the configured policy. |
+| `--yes`, `-y` | Approve every edit without prompting. Only for trusted workspaces; conflicts with `--read-only`. |
 | `--max-cost <USD>` | Stop after a response pushes the total over this cap. Requires a matching pricing entry. |
 | `--temperature <F>` / `--max-tokens <N>` | Sampling controls. |
 | `--json` | Emit versioned JSONL on stdout. |
@@ -162,6 +177,9 @@ Default path: `%APPDATA%\raven\raven.toml`. Override with `--config` or
 default_provider = "openai"
 max_turns = 12
 output_cap = 65536
+# "workspace-write" allows exact edits (each one needs approval unless --yes).
+# "read-only" refuses all writes.
+policy = "workspace-write"
 redact = true
 # max_cost_usd = 1.50
 # temperature = 0.2
@@ -256,15 +274,17 @@ Exit codes:
 | 5 | Maximum turns reached |
 | 130 | Cancelled with Ctrl+C |
 
-## Security posture (M0)
+## Security posture (M1)
 
-M0 is a read-only agent. That is a capability limit, not a claim that the
-process is isolated.
+M1 adds file writes under explicit approval. Every write is still a
+human-authorized, atomic, hash-verified operation, but it is a capability
+increase over M0 and is described honestly below.
 
 **Enforced now**
 
-- Only read-only tools are registered. The policy also rejects write, execute,
-  and network tool kinds.
+- Read tools always; write tools only under `policy = "workspace-write"`.
+  `read-only` registers no write tool at all, and the policy still denies
+  writes at execution time as a second layer.
 - Tool paths are canonicalized and confined to the workspace; traversal,
   device paths, and protected paths (`.git`, `.env*`, key files, credential
   files) are denied.
@@ -297,14 +317,15 @@ a fallback, each with an escape suite and compatibility profile. See
 raven (CLI)
   ├── raven-core      agent loop, events, policy, redaction, cost, traits
   ├── raven-provider  OpenAI-compatible SSE adapter (OpenAI/NIM/Ollama/custom)
-  ├── raven-tools     read-only tools (read_file, list_dir, search_files)
+  ├── raven-tools     read tools, exact edits (edit_file, create_file)
   ├── raven-store     JSONL hash-chained event log + session metadata
-  └── raven-sandbox   probe/planning stub; all future Windows FFI lives here
+  └── raven-sandbox   Windows FFI home: atomic file replace today, containment later
 ```
 
 Dependency direction is one-way: `raven-core` has no dependency on providers,
-tools, storage, or Windows APIs. `raven-sandbox` denies `unsafe_code` in M0 and
-will be the only crate allowed to relax that when containment lands.
+tools, storage, or Windows APIs. `raven-sandbox` is the only crate allowed to
+use `unsafe`: it hosts the atomic-replace FFI today and containment later.
+Every other crate denies `unsafe_code`.
 
 More detail: [`DESIGN.md`](DESIGN.md).
 
@@ -319,17 +340,24 @@ cargo build
 powershell -ExecutionPolicy Bypass -File .\scripts\e2e.ps1
 ```
 
-The e2e script starts `scripts/mock_provider.py` on `127.0.0.1:8765`, runs a
-two-turn session that calls `read_file`, then verifies the session list and
-event log. It uses temporary config and data directories and prefers
+The e2e script starts `scripts/mock_provider.py` on `127.0.0.1:8765`, then runs
+a session that reads, edits, and creates files, and asserts the edit landed, the
+created file exists, and the audit log contains the `edit_applied` event. It
+uses temporary config, data, and workspace directories and prefers
 `target\debug\raven.exe`, falling back to `target\release\raven.exe`.
+
+The secret canary suite is a normal test target:
+
+```powershell
+cargo test -p raven-cli --test canary
+```
 
 ## Roadmap
 
 | Milestone | Scope | Status |
 | --- | --- | --- |
 | M0 | Provider streaming + read-only loop, cancellation, accounting, event log | Implemented |
-| M1 | Safe edits, workspace-write policy, audit hardening, secret canaries | Next |
+| M1 | Safe edits, workspace-write policy, audit hardening, secret canaries | Implemented (SQLite, cassettes, trust gate, entropy remaining) |
 | M2 | Command runner, best-effort containment, output limits | Planned |
 | M3 | MXC + AppContainer sandbox, compatibility profiles, escape suite | Planned |
 | M4 | Git checkpoints and undo | Planned |

@@ -1,6 +1,6 @@
 # Threat Model — Raven CLI
 
-Version 0.1.0 (M0, read-only). This model is revisited at every milestone; the
+Version 0.2.0 (M1, exact edits under approval). This model is revisited at every milestone; the
 M3 additions will be the first time Raven executes untrusted child processes.
 
 ## Scope and trust boundaries
@@ -31,7 +31,7 @@ user ──trusted──▶ raven.exe ──context──▶ provider endpoint (
 
 ## Adversaries
 
-| Adversary | Capability | M0 relevance |
+| Adversary | Capability | M1 relevance |
 | --- | --- | --- |
 | Malicious repository | Controls files, `AGENTS.md`, symlinks, filenames | High: read tools consume this content |
 | Prompt injector | Embeds instructions in README, code comments, issues | High: model may follow them within read-only limits |
@@ -41,7 +41,7 @@ user ──trusted──▶ raven.exe ──context──▶ provider endpoint (
 | Network attacker | Intercepts traffic to a remote endpoint | Medium: TLS validation; localhost is plain HTTP |
 | Malicious MCP server/plugin | Executes code, returns injected content | Not applicable in M0; M5/M8 |
 
-## M0 attack paths and mitigations
+## M1 attack paths and mitigations
 
 ### 1. Prompt injection causes data disclosure
 
@@ -122,7 +122,7 @@ tool calls.
 - **Mitigations:** keys in Credential Manager, not in `raven.toml`; not logged;
   provider error bodies truncated; environment variables supported for CI.
 - **Residual:** same-user malware can read Credential Manager entries or process
-  memory. M0 does not attempt to defend against a compromised local account.
+  memory. M1 does not attempt to defend against a compromised local account.
 
 ### 9. Supply-chain compromise
 
@@ -131,7 +131,7 @@ tool calls.
 - **Residual:** no reproducible-build attestation, no signed binary, no
   `cargo audit`/`cargo deny` gate yet. Planned for release hardening.
 
-## Out of scope (M0)
+## Out of scope (M1)
 
 - Kernel exploits, hypervisor escapes, physical access
 - Multi-user OS isolation and hostile same-user processes

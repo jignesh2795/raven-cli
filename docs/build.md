@@ -6,7 +6,7 @@ supported for the Windows build.
 ## Supported setup
 
 1. **Rust (MSVC toolchain)** — install from <https://rustup.rs>. The project is
-   tested with Rust 1.91.1 and declares `rust-version = "1.80"`.
+   tested with Rust 1.99.1 and declares `rust-version = "1.80"`.
 2. **Visual Studio Build Tools 2019 or later** with:
    - Desktop development with C++ / MSVC x64 build tools
    - Windows 10 or Windows 11 SDK (x64 libraries)

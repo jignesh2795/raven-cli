@@ -35,7 +35,7 @@ behind traits.
 | `raven-provider` | One OpenAI-compatible streaming adapter with retries and SSE tool-call assembly | Denied |
 | `raven-tools` | `read_file`, `list_dir`, `search_files` | Denied |
 | `raven-store` | JSONL hash-chained event log, `meta.json`, verification, session listing | Denied |
-| `raven-sandbox` | Sandbox probe; future MXC/AppContainer/Job Object code | Denied in M0; sole future exception |
+| `raven-sandbox` | Atomic file replace; sandbox probe; future MXC/AppContainer/Job Object code | Sole `unsafe` exception; `atomic.rs` is the current user |
 | `raven-cli` | `clap` CLI, config, Credential Manager, rendering, commands | Denied |
 
 Planned crates for later milestones: `raven-git` (checkpoints), `raven-mcp`,
@@ -85,7 +85,10 @@ USD per million tokens; cost is computed only when pricing exists.
 
 ## Tools and policy
 
-M0 registers only `read_file`, `list_dir`, and `search_files`. The policy
+M0 registers only `read_file`, `list_dir`, and `search_files`. M1 adds
+`edit_file` and `create_file`; execute and network tools are still refused.
+Read confinement is unchanged; write paths are described in "Edits (M1)". The
+policy
 rejects write/execute/network tool kinds even if such a tool were registered by
 mistake.
 
@@ -107,7 +110,8 @@ The boundary arrives with the sandbox.
 
 ## Event store
 
-M0 source of truth is `events.jsonl` plus `meta.json` per session. Each event is
+M0 and M1 use `events.jsonl` plus `meta.json` per session as the source of truth.
+Each event is
 hashed with SHA-256 over a canonical serialization that includes the previous
 hash. `seq` starts at 1; `prev_hash` starts at 64 zeroes. Reads verify sequence,
 links, and hashes.
