@@ -80,6 +80,13 @@ applies".
 
 ## M2 — Command runner + best-effort containment
 
+Per-approval modes are not enough for commands (`cargo test` and `rm -rf` are
+both "execute"), so M2 adds the ruleset described in
+[DESIGN.md](DESIGN.md#approval-model-m2): hard rules first, then user config,
+then session, then trusted project, then `Ask`, with an unmatched request never
+defaulting to allow.
+
+- Ruleset policy `(subject, pattern, action)` with hard, non-overridable rules.
 - Command execution with explicit approval modes.
 - Job Object with `KILL_ON_JOB_CLOSE`; sanitized environment; working-directory
   confinement; output caps and timeout.

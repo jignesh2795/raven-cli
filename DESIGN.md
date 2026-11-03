@@ -172,6 +172,77 @@ Exact `old`/`new` search-replace only, never line numbers:
 Path policy is checked again at write time (TOCTOU-aware), and symlink/junction
 targets are resolved. A failed verification leaves the original untouched.
 
+## Approval model (M2)
+
+M1 approvals are all-or-nothing and that is sufficient for files: an edit either
+gets shown and approved or it does not. Commands need a spectrum — `cargo test`
+and `rm -rf` are both "execute" and must not get the same answer. M2 introduces
+the ruleset.
+
+### Model
+
+A rule is `(subject, pattern, action)`:
+
+| Field | M2 value |
+| --- | --- |
+| subject | `command`, `write-path`, `read-path` |
+| pattern | Glob-ish match against the command line, or the resolved path |
+| action | `Allow`, `Ask`, `Deny` |
+
+Every request is evaluated against the layers in this order, first match wins:
+
+1. **Hard rules** — compiled in, never writable and never overridable. Protect
+   the invariant rather than express a preference: protected paths (`.git`,
+   `.env*`, key files) are always `Deny`; credential selection
+   (`default_provider`, `api_key_env`) can only come from the user config; no
+   rule can grant network access. A rule set that would auto-approve everything
+   is rejected at parse time, so a typo cannot become a blanket allow.
+2. **User config rules** — the user's own `raven.toml` or an `--allow` flag.
+   Highest-trust source because the user owns the file.
+3. **Session rules** — `a`/`all` at an approval prompt, kept in memory for the
+   run and discarded on exit. Raven already has this shape: the approver holds
+   an `AtomicBool` today and it should become the per-pattern version.
+4. **Project rules** — only if the workspace is trusted (see the trust gate).
+   Least trusted: a random repository must not be able to widen the rule set,
+   so a project file may not add `Allow` rules that the user has not also
+   authorized, and any project rule matching a hard rule is dropped with a
+   warning.
+5. **Ask** — the fallback. `Ask` is a request for a human decision, not a
+   weakened allow.
+
+### Why falls back to Ask, never Allow
+
+The agent must never fail open. When no layer matches, the action is `Deny`
+unless a human says otherwise, so an unmatched request prompts and a denied
+prompt means not executed. This is the same invariant as M1's `DenyAll`
+default, extended per-subject instead of per-tool-kind.
+
+### Headless
+
+`Ask` in a non-interactive run is `Deny` with a message saying re-run
+interactively or pass an explicit rule. M6 must keep this: a CI run that
+auto-approves because stdin was connected to a pipe is the same failure as
+blanket approval. Detecting this with `stdin().is_terminal()` is already what
+`ConsoleApprover` does for edits.
+
+### Out of scope for M2
+
+**`drain covered`** — auto-resolving queued requests once a widening rule is
+approved — requires concurrent tool dispatch. Raven's agent loop runs tool
+calls sequentially, so no request is ever pending. If M4-M8 introduce
+concurrency this becomes required, and the design note is: when a rule
+widens, re-evaluate queued requests and log both the original ask and the
+reason it was auto-resolved.
+
+### Attack surface to hold in check
+
+A ruleset is more configurable than a mode, which means more ways to
+mis-express an allow. Hard rules must therefore be few, trivially auditable,
+and covered by tests that assert a crafted rule set still cannot exceed them:
+`Allow` for every command, a path glob that swallows protected names via
+trailing dots or ADS suffixes, a project-supplied rule, and a rule that
+narrows the hard set.
+
 ## Git checkpoints (M4)
 
 Use `git commit-tree` with a temporary index and temporary refs; never touch the
