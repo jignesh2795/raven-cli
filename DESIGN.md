@@ -16,7 +16,7 @@ CLI (raven-cli)
   ├── raven-provider
   │     OpenAI-compatible SSE adapter (OpenAI, NIM, Ollama, custom)
   ├── raven-tools
-  │     read-only tools for M0
+  │     read tools · exact edits (edit_file, create_file)
   ├── raven-store
   │     append-only session log + metadata
   └── raven-sandbox
@@ -117,9 +117,35 @@ hash. `seq` starts at 1; `prev_hash` starts at 64 zeroes. Reads verify sequence,
 links, and hashes.
 
 Why no SQLite in M0: the read-only loop does not need indexed queries, and the
-log must stay replayable without a database. M1 will add a SQLite projection for
-search and resume, while keeping JSONL authoritative. Rebuilds will be possible
-from the log alone.
+log must stay replayable without a database. A projection is deferred rather
+than built — see the section below.
+
+## The SQLite projection is deferred, not pending
+
+The plan promised a projection for "search and resume". Measured on 2026-11-03
+before deciding to build it, `raven sessions` over 2000 session directories takes
+roughly 300-400 ms net of process startup, dominated by parsing one `meta.json`
+per session. Extrapolating, a realistic few-hundred-session account is a fraction
+of a second and mostly process startup. Reading a single session (`raven show`)
+was already O(1) file access and is untouched.
+
+So the projection would buy an improvement at a scale this tool has not reached,
+and would cost:
+
+- `rusqlite` bundled: a C dependency, longer builds, a larger binary.
+- A second source of truth. The JSONL log must stay authoritative, so the
+  database can be stale, and every read that used it would need a freshness
+  check or would silently drop sessions written after the last rebuild. That
+  failure mode is worse than a slow listing.
+- A rebuild path with its own tests, and a schema to migrate later.
+
+What would change this calculus is a real requirement: cross-session search
+(grep over every event log) or a resumable-session picker, both of which need an
+index that scanning files cannot give. Neither is in scope for any milestone
+before M6, and both would be built by whoever needs them, at which point the
+measurement here tells them whether the index is worth it.
+
+Until then the JSONL log plus per-session `meta.json` stays the only store.
 
 Redaction happens before serialization, so secrets should not reach the log even
 if a tool returns them. The log is tamper-evident (chain) but not tamper-proof

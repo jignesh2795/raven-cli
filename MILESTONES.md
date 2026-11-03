@@ -52,7 +52,13 @@ capabilities that need containment.
 - Exact `old`/`new` search-replace with uniqueness checks, atomic replace, and
   post-write hash verification; preserve EOL/BOM.
 - Workspace-write policy with re-checks at write time (TOCTOU-aware).
-- SQLite projection over the event log; rebuildable from JSONL.
+- SQLite projection over the event log; rebuildable from JSONL. **Deferred**
+  with a measurement rather than built — see
+  [DESIGN.md](DESIGN.md#the-sqlite-projection-is-deferred-not-pending).
+  `raven sessions` takes ~300-400 ms for 2000 sessions; a projection would add
+  a C dependency and a second source of truth to speed up a case nobody has
+  hit, with a stale-read failure mode worse than the slowness. Reopen if
+  cross-session search or a session picker is actually needed.
 - Secret canary suite proving canaries never reach provider payloads, logs, or
   error output; entropy detection where practical. **Both done.** Canary suite
   and entropy detection landed alongside the gate; the entropy pass is
@@ -65,15 +71,17 @@ capabilities that need containment.
 junction, and protected-path cases; canaries never leave; replay fixtures are
 stable across runs.
 
-**Exit status:** every clause is met except the SQLite projection. Atomic
-edits, EOL/BOM preservation, symlink and junction policy, canary suite, trust
-gate, entropy detection, and stable replay fixtures are all implemented and
-tested.
+**Exit status: M1 done.** Atomic edits, EOL/BOM preservation, symlink and
+junction policy, canary suite, trust gate, entropy detection, and stable replay
+fixtures are implemented and tested. The one clause not built is the SQLite
+projection, which was measured and deferred on purpose with its rationale and
+cost recorded in DESIGN.md rather than built speculatively.
 
 **Progress (2026-11-03):** edit + create + approval + audit hardening landed
 (commit `c249bbd`); secret canary suite landed next; workspace trust gate
 landed after that; entropy detection followed; provider cassettes completed the
-set. **Remaining M1: the SQLite projection only.**
+set. **M1 is complete**: the SQLite projection was measured and deliberately
+deferred with its rationale recorded in DESIGN.md.
 
 **Cassettes (2026-11-03):** `raven run --record` captures the raw SSE bytes a
 provider returned and `--replay` feeds them back through the *same* parser as
