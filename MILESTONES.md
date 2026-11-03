@@ -155,3 +155,20 @@ violations are audited and denied.
 | 2026-11-03 | `cargo clippy --workspace --all-targets -- -D warnings` | Clean (clippy 1.99.1) |
 | 2026-11-03 | `cargo test --workspace` after formatting | 17 passed |
 | 2026-11-03 | `scripts/e2e.ps1` after formatting | Pass |
+| 2026-11-03 | `raven-cli` M1 edit + create + approval + audit | Builds clean, 32 tests, E2E passes |
+| 2026-11-03 | `raven doctor` (post-M1) | Reports workspace-write policy |
+
+Notes on M1 scope delivered in this commit:
+- `PolicyMode::WorkspaceWrite` + `WorkspaceWrite` registry with `edit_file` and `create_file`.
+- `ToolContext.approver` wired through `Agent::with_approver()`; default `DenyAll`.
+- `ConsoleApprover` in `raven-cli/src/approve.rs`: diff preview on stderr, `y/n/a` prompt, `--yes` skips prompt.
+- `Policy::resolve_for_write()` (new file allowed, protected paths blocked, symlink/junction targets resolved before policy check, reserved Windows names and ADS denied).
+- `PathPolicy.normalize_name()` handles `.env::$DATA` bypasses.
+- `atomic.rs` in `raven-sandbox`: `ReplaceFileW` (existing) + `MoveFileExW` with `MOVEFILE_WRITE_THROUGH` (new), with `TempFile` guard.
+- `write_support` module: BOM/EOL preservation, `detect_eol()`, `encode()`, `sha256_hex()`.
+- `edit_file`: exact `old`/`new`, uniqueness check or `replace_all`, post-edit hash verify, `EditApplied` event with before/after SHA-256.
+- `create_file`: only creates missing files, never overwrites.
+- `events.jsonl` records `edit_applied` events with hashes.
+- `prompt.rs` updated: edit rules added, `PolicyMode` passed through.
+- `e2e.ps1` now exercises read → edit → create → audit.
+- `sample_toml()` and `Config` include `policy = "workspace-write"`.

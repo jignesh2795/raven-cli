@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use raven_core::cost::Pricing;
+use raven_core::policy::PolicyMode;
 use raven_core::{Error, Result};
 use serde::{Deserialize, Serialize};
 
@@ -9,6 +10,10 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     #[serde(default)]
     pub default_provider: Option<String>,
+    /// `read-only` or `workspace-write`. Defaults to workspace-write; every
+    /// write still requires approval unless `--yes` is passed.
+    #[serde(default)]
+    pub policy: Option<PolicyMode>,
     #[serde(default)]
     pub providers: BTreeMap<String, ProviderConfig>,
     #[serde(default)]
@@ -31,6 +36,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             default_provider: Some("openai".into()),
+            policy: Some(PolicyMode::WorkspaceWrite),
             providers: BTreeMap::new(),
             pricing: BTreeMap::new(),
             max_turns: default_max_turns(),
@@ -214,15 +220,19 @@ pub fn init(explicit: Option<PathBuf>, force: bool) -> Result<PathBuf> {
 }
 
 pub fn sample_toml() -> String {
-    r#"# Raven CLI configuration (M0).
+    r#"# Raven CLI configuration.
 # API keys are not stored here: use `raven auth set <provider>`.
-# Project-local raven.toml files are intentionally ignored until the M5
+# Project-local raven.toml files are intentionally ignored until the
 # workspace trust gate exists; a cloned repository must not control endpoints.
 
 default_provider = "openai"
 max_turns = 12
 output_cap = 65536
 redact = true
+# "workspace-write" (default) allows exact search/replace edits inside the
+# workspace. Every edit is shown as a diff and needs approval unless --yes.
+# "read-only" refuses all writes.
+policy = "workspace-write"
 # temperature = 0.2
 # max_tokens = 4096
 # max_cost_usd = 1.50

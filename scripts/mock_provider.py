@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Tiny OpenAI-compatible SSE fixture for end-to-end tests.
 
-First request: asks to read README.md.
-Second request (after the tool result): streams a short final answer.
+The fixture walks a deterministic multi-step scenario:
+
+1. read_file  workspace/sample.txt
+2. edit_file  replace "line one" with "line one (edited)"
+3. create_file workspace/notes/created.txt
+4. final answer
 
 Usage:
     python scripts/mock_provider.py --port 8765
@@ -34,7 +38,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         messages = body.get("messages", [])
-        has_tool_result = any(message.get("role") == "tool" for message in messages)
+        tool_results = sum(1 for message in messages if message.get("role") == "tool")
 
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
@@ -43,36 +47,34 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.close_connection = True
 
-        if not has_tool_result:
-            self._data(
-                {
-                    "choices": [
-                        {
-                            "delta": {
-                                "role": "assistant",
-                                "tool_calls": [
-                                    {
-                                        "index": 0,
-                                        "id": "call_read_readme",
-                                        "type": "function",
-                                        "function": {
-                                            "name": "read_file",
-                                            "arguments": json.dumps({"path": "README.md"}),
-                                        },
-                                    }
-                                ],
-                            },
-                            "finish_reason": None,
-                        }
-                    ]
-                }
+        if tool_results == 0:
+            self._tool(
+                "read_file",
+                {"path": "sample.txt"},
+                "call_read_sample",
+                input_tokens=120,
+                output_tokens=18,
             )
-            self._data({"choices": [{"delta": {}, "finish_reason": "tool_calls"}]})
-            self._usage(input_tokens=120, output_tokens=18)
+        elif tool_results == 1:
+            self._tool(
+                "edit_file",
+                {"path": "sample.txt", "old": "line one", "new": "line one (edited)"},
+                "call_edit_sample",
+                input_tokens=180,
+                output_tokens=32,
+            )
+        elif tool_results == 2:
+            self._tool(
+                "create_file",
+                {"path": "notes/created.txt", "content": "created by the e2e fixture\n"},
+                "call_create_note",
+                input_tokens=220,
+                output_tokens=28,
+            )
         else:
             for text in [
-                "The README describes a Windows-first agent CLI. ",
-                "This mock confirms that the tool loop and event log work.\n",
+                "The sample file was edited and a note was created. ",
+                "This mock confirms the read, edit, create, and audit paths.\n",
             ]:
                 self._data(
                     {
@@ -82,10 +84,44 @@ class Handler(BaseHTTPRequestHandler):
                     }
                 )
             self._data({"choices": [{"delta": {}, "finish_reason": "stop"}]})
-            self._usage(input_tokens=180, output_tokens=24)
+            self._usage(input_tokens=260, output_tokens=26)
 
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
+
+    def _tool(
+        self,
+        name: str,
+        arguments: object,
+        call_id: str,
+        input_tokens: int,
+        output_tokens: int,
+    ) -> None:
+        self._data(
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "role": "assistant",
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": call_id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": name,
+                                        "arguments": json.dumps(arguments),
+                                    },
+                                }
+                            ],
+                        },
+                        "finish_reason": None,
+                    }
+                ]
+            }
+        )
+        self._data({"choices": [{"delta": {}, "finish_reason": "tool_calls"}]})
+        self._usage(input_tokens=input_tokens, output_tokens=output_tokens)
 
     def _data(self, payload: object) -> None:
         self.wfile.write(b"data: ")

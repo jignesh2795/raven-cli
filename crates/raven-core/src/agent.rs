@@ -12,7 +12,7 @@ use crate::message::{Message, ToolCall};
 use crate::policy::{PathPolicy, Policy};
 use crate::provider::{ChatRequest, Provider, ProviderEvent};
 use crate::redact::{sanitize_text, truncate_utf8, Redactor};
-use crate::tool::{ToolContext, ToolRegistry};
+use crate::tool::{Approver, DenyAll, ToolContext, ToolRegistry};
 use crate::{Error, Result};
 
 /// Receives audit events. Implementations must be thread-safe because tools and
@@ -62,6 +62,7 @@ pub struct Agent {
     policy: Policy,
     redactor: Arc<Redactor>,
     path_policy: Arc<PathPolicy>,
+    approver: Arc<dyn Approver>,
     workspace: PathBuf,
     output_cap: usize,
     config: AgentConfig,
@@ -98,6 +99,7 @@ impl Agent {
             policy,
             redactor,
             path_policy,
+            approver: Arc::new(DenyAll),
             workspace,
             output_cap,
             config,
@@ -107,6 +109,13 @@ impl Agent {
             cost,
             turns: 0,
         }
+    }
+
+    /// Set the approver consulted before a write tool runs. Defaults to
+    /// `DenyAll`, so a missing wiring fails closed.
+    pub fn with_approver(mut self, approver: Arc<dyn Approver>) -> Self {
+        self.approver = approver;
+        self
     }
 
     pub fn turns(&self) -> usize {
@@ -370,25 +379,38 @@ impl Agent {
                     continue;
                 };
 
-                let (content, ok, truncated) =
-                    if let Err(error) = self.policy.check_tool(tool.kind()) {
-                        (format!("ERROR: {error}"), false, false)
-                    } else {
-                        let context = ToolContext {
-                            workspace: self.workspace.clone(),
-                            path_policy: self.path_policy.clone(),
-                            redactor: self.redactor.clone(),
-                            output_cap: self.output_cap,
-                        };
-                        match tool.call(args, &context).await {
-                            Ok(output) => {
-                                let redacted = self.redactor.redact(&output.content);
-                                let (capped, extra) = truncate_utf8(&redacted, self.output_cap);
-                                (capped.to_string(), true, output.truncated || extra)
-                            }
-                            Err(error) => (format!("ERROR: {error}"), false, false),
-                        }
+                let (content, ok, truncated) = if let Err(error) =
+                    self.policy.check_tool(tool.kind())
+                {
+                    (format!("ERROR: {error}"), false, false)
+                } else {
+                    let context = ToolContext {
+                        workspace: self.workspace.clone(),
+                        path_policy: self.path_policy.clone(),
+                        redactor: self.redactor.clone(),
+                        output_cap: self.output_cap,
+                        approver: self.approver.clone(),
                     };
+                    match tool.call(args, &context).await {
+                        Ok(output) => {
+                            if let Some(data) = &output.data {
+                                if data.get("kind").and_then(Value::as_str) == Some("edit") {
+                                    let path =
+                                        data.get("path").and_then(Value::as_str).unwrap_or("file");
+                                    self.sink.append(
+                                        EventKind::EditApplied,
+                                        &format!("edit {path}"),
+                                        data.clone(),
+                                    )?;
+                                }
+                            }
+                            let redacted = self.redactor.redact(&output.content);
+                            let (capped, extra) = truncate_utf8(&redacted, self.output_cap);
+                            (capped.to_string(), true, output.truncated || extra)
+                        }
+                        Err(error) => (format!("ERROR: {error}"), false, false),
+                    }
+                };
                 let content = sanitize_text(&content);
 
                 let summary = summarize(&content);

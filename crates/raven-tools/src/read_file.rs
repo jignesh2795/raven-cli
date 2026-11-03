@@ -139,6 +139,7 @@ impl Tool for ReadFileTool {
         Ok(ToolOutput {
             content: content.to_string(),
             truncated: truncated || file_truncated,
+            data: None,
         })
     }
 }
@@ -156,6 +157,7 @@ mod tests {
             path_policy: Arc::new(PathPolicy::new(root).unwrap()),
             redactor: Arc::new(Redactor::default()),
             output_cap: 64 * 1024,
+            approver: Arc::new(raven_core::tool::DenyAll),
         }
     }
 

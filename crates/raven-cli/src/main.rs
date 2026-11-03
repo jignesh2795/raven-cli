@@ -1,5 +1,6 @@
 #![deny(unsafe_code)]
 
+mod approve;
 mod auth;
 mod config;
 mod doctor;
@@ -14,21 +15,23 @@ use std::sync::Arc;
 use clap::{Args, Parser, Subcommand};
 use raven_core::agent::{Agent, AgentConfig, RunSummary};
 use raven_core::cost::CostTracker;
-use raven_core::policy::{PathPolicy, Policy};
+use raven_core::policy::{PathPolicy, Policy, PolicyMode};
 use raven_core::redact::Redactor;
+use raven_core::tool::Approver;
 use raven_core::{Error, Result};
 use raven_provider::OpenAiProvider;
 use raven_store::Store;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+use crate::approve::ConsoleApprover;
 use crate::render::ConsoleObserver;
 
 #[derive(Debug, Parser)]
 #[command(
     name = "raven",
     version,
-    about = "Windows-first, provider-neutral coding agent (M0: read-only)",
+    about = "Windows-first, provider-neutral coding agent (M1: exact edits with approval)",
     long_about = None
 )]
 struct Cli {
@@ -96,6 +99,12 @@ struct RunArgs {
     temperature: Option<f32>,
     #[arg(long)]
     max_tokens: Option<u32>,
+    /// Refuse every file write for this run, whatever the config says.
+    #[arg(long)]
+    read_only: bool,
+    /// Approve every file edit without prompting. Only use in trusted workspaces.
+    #[arg(long, short = 'y', conflicts_with = "read_only")]
+    yes: bool,
     /// Emit versioned JSONL events instead of human-readable output.
     #[arg(long)]
     json: bool,
@@ -207,18 +216,32 @@ async fn cmd_run(args: RunArgs, config_path: Option<PathBuf>) -> Result<ExitCode
         )));
     }
 
+    let policy_mode = if args.read_only {
+        PolicyMode::ReadOnly
+    } else {
+        cfg.policy.unwrap_or(PolicyMode::WorkspaceWrite)
+    };
+    let policy = match policy_mode {
+        PolicyMode::ReadOnly => Policy::read_only(),
+        PolicyMode::WorkspaceWrite => Policy::workspace_write(),
+    };
+
     let data_dir = config::data_dir()?;
     let store = Arc::new(Store::create(
         &data_dir,
         &workspace,
         &provider_name,
         &resolved.model,
+        policy_mode.label(),
     )?);
 
     let path_policy = Arc::new(PathPolicy::new(&workspace)?);
     let redactor = Arc::new(Redactor::with_enabled(cfg.redact));
-    let system_prompt = prompt::build(&workspace, &path_policy, &redactor)?;
-    let tools = Arc::new(raven_tools::read_only_registry());
+    let system_prompt = prompt::build(&workspace, &path_policy, &redactor, policy_mode)?;
+    let tools = Arc::new(match policy_mode {
+        PolicyMode::ReadOnly => raven_tools::read_only_registry(),
+        PolicyMode::WorkspaceWrite => raven_tools::workspace_write_registry(),
+    });
 
     let provider = Arc::new(
         OpenAiProvider::new(
@@ -236,6 +259,9 @@ async fn cmd_run(args: RunArgs, config_path: Option<PathBuf>) -> Result<ExitCode
         redactor.clone(),
     ));
 
+    let approver: Arc<dyn Approver> =
+        Arc::new(ConsoleApprover::new(args.yes, !args.no_color && !args.json));
+
     let cancel = CancellationToken::new();
     spawn_cancel_handler(cancel.clone());
 
@@ -247,13 +273,15 @@ async fn cmd_run(args: RunArgs, config_path: Option<PathBuf>) -> Result<ExitCode
             "provider": provider_name,
             "model": resolved.model,
             "workspace": workspace.to_string_lossy(),
+            "policy": policy_mode.label(),
         }));
     } else {
         eprintln!(
-            "{} · {} · {}\n",
+            "{} · {} · {} · {}\n",
             store.session_id(),
             resolved.model,
-            workspace.display()
+            workspace.display(),
+            policy_mode.label()
         );
     }
 
@@ -272,7 +300,7 @@ async fn cmd_run(args: RunArgs, config_path: Option<PathBuf>) -> Result<ExitCode
         tools,
         store.clone(),
         observer,
-        Policy::read_only(),
+        policy,
         redactor,
         path_policy,
         workspace.clone(),
@@ -280,7 +308,8 @@ async fn cmd_run(args: RunArgs, config_path: Option<PathBuf>) -> Result<ExitCode
         agent_config,
         CostTracker::new(pricing, max_cost),
         cancel,
-    );
+    )
+    .with_approver(approver);
 
     match agent.run(prompt).await {
         Ok(summary) => {

@@ -77,6 +77,7 @@ fn print_meta(meta: &SessionMeta) {
     println!("session:   {}", meta.id);
     println!("workspace: {}", meta.workspace);
     println!("provider:  {} ({})", meta.provider, meta.model);
+    println!("policy:    {}", meta.policy);
     println!("status:    {} · {} turns", meta.status, meta.turns);
     println!(
         "usage:     {} in / {} out ({} cached)",

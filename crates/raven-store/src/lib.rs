@@ -29,6 +29,9 @@ pub struct SessionMeta {
     pub workspace: String,
     pub provider: String,
     pub model: String,
+    /// Policy mode the session ran under ("read-only" or "workspace-write").
+    #[serde(default = "default_policy")]
+    pub policy: String,
     pub status: String,
     pub turns: usize,
     pub usage: Usage,
@@ -42,6 +45,10 @@ impl SessionMeta {
     pub fn total_tokens(&self) -> u64 {
         self.usage.total_tokens()
     }
+}
+
+fn default_policy() -> String {
+    "read-only".into()
 }
 
 struct Inner {
@@ -60,7 +67,13 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn create(root: &Path, workspace: &Path, provider: &str, model: &str) -> Result<Self> {
+    pub fn create(
+        root: &Path,
+        workspace: &Path,
+        provider: &str,
+        model: &str,
+        policy: &str,
+    ) -> Result<Self> {
         fs::create_dir_all(root.join("sessions"))?;
 
         let now = Utc::now();
@@ -79,6 +92,7 @@ impl Store {
             workspace: workspace.to_string_lossy().to_string(),
             provider: provider.to_string(),
             model: model.to_string(),
+            policy: policy.to_string(),
             status: "running".into(),
             turns: 0,
             usage: Usage::default(),
@@ -114,6 +128,7 @@ impl Store {
                 "workspace": workspace.to_string_lossy(),
                 "provider": provider,
                 "model": model,
+                "policy": policy,
                 "os": std::env::consts::OS,
                 "arch": std::env::consts::ARCH,
                 "raven_version": SERVICE_VERSION,
@@ -332,7 +347,7 @@ mod tests {
     #[test]
     fn writes_verifiable_chain_and_redacts() {
         let temp = tempfile::tempdir().unwrap();
-        let store = Store::create(temp.path(), temp.path(), "test", "model").unwrap();
+        let store = Store::create(temp.path(), temp.path(), "test", "model", "read-only").unwrap();
         store
             .append(
                 EventKind::Notice,
@@ -375,9 +390,9 @@ mod tests {
     #[test]
     fn lists_sessions_newest_first() {
         let temp = tempfile::tempdir().unwrap();
-        let first = Store::create(temp.path(), temp.path(), "test", "model").unwrap();
+        let first = Store::create(temp.path(), temp.path(), "test", "model", "read-only").unwrap();
         std::thread::sleep(std::time::Duration::from_millis(2));
-        let second = Store::create(temp.path(), temp.path(), "test", "model").unwrap();
+        let second = Store::create(temp.path(), temp.path(), "test", "model", "read-only").unwrap();
 
         let sessions = list_sessions(temp.path(), 10).unwrap();
         assert_eq!(sessions.len(), 2);

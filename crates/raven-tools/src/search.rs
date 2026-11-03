@@ -183,6 +183,7 @@ impl Tool for SearchTool {
         Ok(ToolOutput {
             content: content.to_string(),
             truncated: truncated || capped,
+            data: None,
         })
     }
 }

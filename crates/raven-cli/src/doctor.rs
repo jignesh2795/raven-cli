@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+use raven_core::policy::PolicyMode;
 use raven_core::Result;
 
 use crate::auth;
@@ -25,6 +26,10 @@ pub fn run(config_path: Option<PathBuf>) -> Result<()> {
     );
     println!("data:      {}", data.display());
     println!("workspace: {}", workspace.display());
+    println!(
+        "policy:    {} (edits require approval unless --yes)",
+        config.policy.unwrap_or(PolicyMode::WorkspaceWrite).label()
+    );
     println!("git:       {}", git_version());
     println!(
         "agents:    {}",
@@ -70,7 +75,8 @@ pub fn run(config_path: Option<PathBuf>) -> Result<()> {
     println!("  vm:           {}", describe(&probe.vm));
 
     println!("\nnotes:");
-    println!("  - M0 is read-only; no command execution backend is active.");
+    println!("  - File edits are exact search/replace, atomic, and hash-verified.");
+    println!("  - No command execution backend is active (planned for M2).");
     println!("  - Run from a normal (non-elevated) terminal. Elevation is refused at M3.");
     println!("  - Add [pricing.\"<model>\"] to raven.toml before using --max-cost.");
 

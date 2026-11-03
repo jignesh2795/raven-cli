@@ -129,6 +129,7 @@ impl Tool for ListDirTool {
         Ok(ToolOutput {
             content: content.to_string(),
             truncated: truncated || capped,
+            data: None,
         })
     }
 }

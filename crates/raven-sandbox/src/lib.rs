@@ -7,6 +7,7 @@
 //! crate): MXC where available, then AppContainer + Job Object + restricted
 //! token, then an explicitly labelled best-effort mode.
 
+pub mod atomic;
 pub mod windows;
 
 pub use windows::probe;
