@@ -70,7 +70,9 @@ If `cargo` or `link.exe` is not on `PATH`, configure the shell:
 . .\scripts\dev-env.ps1
 ```
 
-If the Windows SDK is missing entirely, use the no-admin NuGet fallback:
+If the Windows SDK is missing entirely, use the no-admin NuGet fallback. It
+downloads the SDK link libraries once into `%LOCALAPPDATA%\raven-sdk`; after
+that, plain `.\scripts\dev-env.ps1` finds them automatically:
 
 ```powershell
 . .\scripts\dev-env.ps1 -DownloadSdk

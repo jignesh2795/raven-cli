@@ -157,6 +157,20 @@ violations are audited and denied.
 | 2026-11-03 | `scripts/e2e.ps1` after formatting | Pass |
 | 2026-11-03 | `raven-cli` M1 edit + create + approval + audit | Builds clean, 32 tests, E2E passes |
 | 2026-11-03 | `raven doctor` (post-M1) | Reports workspace-write policy |
+| 2026-11-03 | Windows SDK persistence fix | `-DownloadSdk` writes `%LOCALAPPDATA%\raven-sdk`; plain `dev-env.ps1` auto-detects it; build/tests/clippy/fmt green in a clean shell with no flags |
+
+Root cause of the earlier "no Windows SDK" report: the SDK **was** installed
+(the successful builds in this session used a NuGet-extracted SDK), but
+`dev-env.ps1` only auto-detected SDKs from `Windows Kits\10\Lib`. The persisted
+NuGet SDK at `%LOCALAPPDATA%\raven-sdk\sdk-*` was invisible unless `-SdkPath`
+was passed explicitly, so a new shell looked like a machine with no SDK. Two
+script fixes:
+
+- `Find-PersistedNuGetSdk` scans `%LOCALAPPDATA%\raven-sdk\sdk-*` and is tried
+  after an installed SDK, before `-DownloadSdk`.
+- `Expand-Archive` rejects the `.nupkg` extension (zip only), which crashed the
+  download path; extraction now uses `ZipFile.ExtractToDirectory`, which
+  inspects the archive content rather than the file name.
 
 Notes on M1 scope delivered in this commit:
 - `PolicyMode::WorkspaceWrite` + `WorkspaceWrite` registry with `edit_file` and `create_file`.

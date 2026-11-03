@@ -135,6 +135,25 @@ function Find-NuGetSdk {
     return $null
 }
 
+function Find-PersistedNuGetSdk {
+    # A previously downloaded SDK lives in %LOCALAPPDATA%\raven-sdk\sdk-<version>.
+    # Auto-detecting it here means a single `-DownloadSdk` run is enough and
+    # later shells do not need -SdkPath or a TEMP directory.
+    $root = Join-Path $env:LOCALAPPDATA 'raven-sdk'
+    if (-not (Test-Path $root)) {
+        return $null
+    }
+
+    foreach ($candidate in (Get-ChildItem $root -Directory -Filter 'sdk-*' |
+            Sort-Object Name -Descending)) {
+        $sdk = Find-NuGetSdk -Root $candidate.FullName
+        if ($sdk) {
+            return $sdk
+        }
+    }
+    return $null
+}
+
 function Install-NuGetSdk {
     $root = Join-Path $env:LOCALAPPDATA 'raven-sdk'
     New-Item -ItemType Directory -Force $root | Out-Null
@@ -163,7 +182,10 @@ function Install-NuGetSdk {
     if (Test-Path $extract) {
         Remove-Item -Recurse -Force $extract
     }
-    Expand-Archive -Path $nupkg -DestinationPath $extract -Force
+    # A .nupkg is a zip archive, but Expand-Archive rejects any extension that
+    # is not .zip. ZipFile inspects the contents instead of the file name.
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($nupkg, $extract)
 
     $sdk = Find-NuGetSdk -Root $extract
     if (-not $sdk) {
@@ -188,7 +210,12 @@ if ($SdkPath) {
         throw "SdkPath '$SdkPath' does not contain c\um\x64\kernel32.lib and c\ucrt\x64\ucrt.lib."
     }
 } else {
+    # Order: an installed SDK (Visual Studio Installer) wins, then a previously
+    # downloaded NuGet SDK, then a fresh download on request.
     $sdk = Find-WindowsSdkDirs
+    if (-not $sdk) {
+        $sdk = Find-PersistedNuGetSdk
+    }
     if (-not $sdk -and $DownloadSdk) {
         $sdk = Install-NuGetSdk
     }

@@ -58,11 +58,16 @@ The fallback downloads `Microsoft.Windows.SDK.CPP.x64` from nuget.org into
 directories. It provides link libraries only; it is not a replacement for a
 full SDK if you later need Windows headers, `rc.exe`, or debugging tools.
 
-To reuse an already-extracted package:
+The download persists. Later shells auto-detect it, and plain `.\scripts\dev-env.ps1` works without arguments:
 
 ```powershell
-. .\scripts\dev-env.ps1 -SdkPath "$env:TEMP\raven-sdk\extract"
+. .\scripts\dev-env.ps1
 ```
+
+Resolution order: installed SDK from the Visual Studio Installer first, then
+the persisted NuGet SDK. `-SdkPath` is only needed to point at a package
+extracted somewhere else, such as a `sdk-<version>` directory extracted by hand
+into `%TEMP%`.
 
 ## Rust not on PATH
 
