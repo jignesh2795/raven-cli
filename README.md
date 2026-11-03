@@ -67,7 +67,7 @@ The sandbox research that shaped this positioning is in
   payload, the audit log, or an approval diff.
 
 Not implemented yet: command execution, OS sandboxing, git checkpoints,
-MCP, skills, plugins, TUI, provider cassette record/replay.
+MCP, skills, plugins, TUI. Cassette record/replay is done (below).
 
 ## Quickstart
 
@@ -163,6 +163,8 @@ raven show <session-id>
 | `--max-turns <N>` | Agent loop limit. Default 12. |
 | `--read-only` | Refuse every file write this run, ignoring the configured policy. |
 | `--yes`, `-y` | Approve every edit without prompting. Only for trusted workspaces; conflicts with `--read-only`. |
+| `--record <PATH>` | Capture this run's provider responses to a cassette for later replay. |
+| `--replay <PATH>` | Replay a recorded cassette instead of calling the provider. |
 | `--max-cost <USD>` | Stop after a response pushes the total over this cap. Requires a matching pricing entry. |
 | `--temperature <F>` / `--max-tokens <N>` | Sampling controls. |
 | `--json` | Emit versioned JSONL on stdout. |
@@ -367,6 +369,27 @@ The secret canary suite is a normal test target:
 ```powershell
 cargo test -p raven-cli --test canary
 ```
+
+## Provider cassettes
+
+Record a real session once and replay it deterministically, with no network and
+no API key:
+
+```powershell
+raven run --record session.jsonl "Fix the failing test"
+raven run --replay session.jsonl "Fix the failing test"
+```
+
+Replay runs through the *same* SSE parser as the live path, so a cassette
+exercises the real framing, `[DONE]` handling, tool-call delta assembly, and
+usage accounting rather than skipping them. Matching is by the shape of the
+conversation — how many turns happened, which tools were called in what order —
+so a differently worded prompt still replays, but a conversation that has
+diverged is refused rather than answered against the wrong entry.
+
+A cassette holds whatever the provider sent, which can include your prompt text.
+Treat it like a session transcript: do not commit one that contains credentials
+or private code.
 
 ## Roadmap
 

@@ -44,10 +44,12 @@ struct Cli {
     command: Command,
 }
 
+/// `Run` is boxed: it carries every run flag and would otherwise size the whole
+/// enum up for the much smaller subcommands.
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Run a read-only agent turn.
-    Run(RunArgs),
+    Run(Box<RunArgs>),
     /// Write a sample configuration file.
     Init {
         #[arg(long)]
@@ -112,6 +114,12 @@ struct RunArgs {
     temperature: Option<f32>,
     #[arg(long)]
     max_tokens: Option<u32>,
+    /// Record the raw provider responses to this cassette file for replay.
+    #[arg(long, conflicts_with = "replay")]
+    record: Option<PathBuf>,
+    /// Replay from this cassette instead of calling the provider.
+    #[arg(long)]
+    replay: Option<PathBuf>,
     /// Refuse every file write for this run, whatever the config says.
     #[arg(long)]
     read_only: bool,
@@ -158,7 +166,7 @@ async fn main() -> ExitCode {
 
 async fn dispatch(cli: Cli) -> Result<ExitCode> {
     match cli.command {
-        Command::Run(args) => cmd_run(args, cli.config).await,
+        Command::Run(args) => cmd_run(*args, cli.config).await,
         Command::Init { force } => {
             let path = config::init(cli.config, force)?;
             println!("wrote {}", path.display());
@@ -271,15 +279,34 @@ async fn cmd_run(args: RunArgs, config_path: Option<PathBuf>) -> Result<ExitCode
         PolicyMode::WorkspaceWrite => raven_tools::workspace_write_registry(),
     });
 
-    let provider = Arc::new(
-        OpenAiProvider::new(
+    // When recording, the cassette is written once the run ends; the recorder
+    // outlives the provider so it must be kept alive here.
+    let mut recorder: Option<Arc<raven_provider::Recorder>> = None;
+    let provider: Arc<dyn raven_core::provider::Provider> = if let Some(path) = &args.replay {
+        // Replays through the same SSE parser as the live path, so a cassette
+        // exercises the real framing and tool-call assembly.
+        let cassette = raven_provider::Cassette::load(path)?;
+        Arc::new(raven_provider::CassetteProvider::new(cassette))
+    } else {
+        let mut provider = OpenAiProvider::new(
             provider_name.clone(),
             resolved.base_url.clone(),
             resolved.model.clone(),
             api_key,
         )?
-        .with_stream_usage(resolved.stream_usage),
-    );
+        .with_stream_usage(resolved.stream_usage);
+
+        if let Some(path) = &args.record {
+            let handle = Arc::new(raven_provider::Recorder::new(
+                path.clone(),
+                provider_name.clone(),
+                resolved.model.clone(),
+            ));
+            provider = provider.with_recorder(handle.clone());
+            recorder = Some(handle);
+        }
+        Arc::new(provider)
+    };
 
     let observer = Arc::new(ConsoleObserver::new(
         args.json,
@@ -346,7 +373,19 @@ async fn cmd_run(args: RunArgs, config_path: Option<PathBuf>) -> Result<ExitCode
     )
     .with_approver(approver);
 
-    match agent.run(prompt).await {
+    let result = agent.run(prompt).await;
+
+    // Recording writes the cassette after the run ends, however it ended: a
+    // partial session is still worth replaying when debugging a failure.
+    if let Some(recorder) = recorder {
+        if let Err(error) = recorder.flush() {
+            if !args.json {
+                eprintln!("raven: {error}");
+            }
+        }
+    }
+
+    match result {
         Ok(summary) => {
             store.finish("completed", summary.turns, summary.usage, summary.cost_usd)?;
             report_success(&summary, store.session_id(), args.json);

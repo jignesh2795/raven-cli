@@ -1078,11 +1078,14 @@ version = "0.2.0"
 dependencies = [
  "async-stream",
  "async-trait",
+ "bytes",
  "eventsource-stream",
  "futures-util",
  "raven-core",
  "reqwest",
+ "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tokio-util",
 ]

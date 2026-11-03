@@ -58,21 +58,31 @@ capabilities that need containment.
   and entropy detection landed alongside the gate; the entropy pass is
   deliberately conservative (keeps git SHAs, digests, and UUIDs) and marks hits
   `[HIGH-ENTROPY]`.
-- Provider record/replay cassettes for deterministic tests.
+- Provider record/replay cassettes for deterministic tests. **Done.**
 - Workspace trust gate for project-local configuration. **Done** (2026-11-03).
 
 **Exit:** atomic edits preserve EOL/BOM; path-policy tests cover symlink,
 junction, and protected-path cases; canaries never leave; replay fixtures are
 stable across runs.
 
-**Exit status:** atomic edits, EOL/BOM preservation, symlink and junction
-policy, canary suite, trust gate, and entropy detection are all done and
-tested. The replay-fixture and SQLite clauses remain.
+**Exit status:** every clause is met except the SQLite projection. Atomic
+edits, EOL/BOM preservation, symlink and junction policy, canary suite, trust
+gate, entropy detection, and stable replay fixtures are all implemented and
+tested.
 
 **Progress (2026-11-03):** edit + create + approval + audit hardening landed
 (commit `c249bbd`); secret canary suite landed next; workspace trust gate
-landed after that; entropy detection followed. Remaining M1: SQLite projection
-and provider record/replay cassettes.
+landed after that; entropy detection followed; provider cassettes completed the
+set. **Remaining M1: the SQLite projection only.**
+
+**Cassettes (2026-11-03):** `raven run --record` captures the raw SSE bytes a
+provider returned and `--replay` feeds them back through the *same* parser as
+the live path, so a replayed session exercises real framing and tool-call
+assembly rather than a hand-written fake. Matching is by conversation shape
+(roles, tool-call names, tool names), so wording may differ but structural
+divergence is refused. The recording adapter closes its entry on drop, not on
+stream exhaustion — the parser stops polling at `[DONE]`, so an
+exhaustion-based close would silently record nothing.
 
 **Trust gate (2026-11-03):** project-local `raven.toml` is ignored until
 `raven trust --grant`. Records live in `trust.json` under the data dir, keyed

@@ -6,6 +6,8 @@
 //! most self-hosted gateways. Capability differences are handled by
 //! configuration and by accepting partial/streamed tool-call payloads.
 
+mod cassette;
 mod openai;
 
+pub use cassette::{Cassette, CassetteProvider, Recorder};
 pub use openai::OpenAiProvider;

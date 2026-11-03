@@ -264,6 +264,32 @@ Remaining gap: a secret that is short, or that looks like natural language, is
 still missed. That needs either provider-side handling or a purge of the
 workspace before it reaches the model.
 
+## Provider cassettes (M1)
+
+`raven run --record <path>` captures the raw SSE bytes a provider returned;
+`--replay <path>` feeds them back through the *same* parser as the live path.
+The shared entry point is `raven-provider::openai::sse_events`, so a replay
+exercises real SSE framing, `[DONE]` handling, error surfacing, and tool-call
+delta assembly instead of skipping everything a hand-written fake would skip.
+
+Two consequences shape the design:
+
+- **The recorder taps bytes, not parsed events.** A cassette of parsed events
+  would never test the parser again. `RecordingSource` copies chunks as they
+  flow and closes the entry on drop.
+- **Closing on drop, not exhaustion.** The parser stops polling as soon as it
+  sees `[DONE]`, which every real provider sends, so an exhaustion-based close
+  never fires and recording silently yields nothing.
+
+Matching is by conversation *shape* — message roles, tool-call names, tool names
+— so a differently worded prompt still replays while a structurally diverged
+conversation is refused rather than answered against the wrong entry. That is a
+deliberate trade: it makes replays robust to prompt rewording and silent to
+content changes. A stricter mode would need a canonical transcript.
+
+Cassettes hold whatever the provider sent, including prompt text. Treat them as
+session transcripts: do not commit one containing credentials or private code.
+
 ## Git checkpoints (M4)
 
 Use `git commit-tree` with a temporary index and temporary refs; never touch the

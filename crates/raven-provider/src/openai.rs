@@ -1,8 +1,11 @@
+use std::pin::Pin;
 use std::time::Duration;
 
 use async_stream::try_stream;
 use async_trait::async_trait;
+use bytes::Bytes;
 use eventsource_stream::Eventsource;
+use futures_util::Stream;
 use futures_util::StreamExt;
 use raven_core::cost::Usage;
 use raven_core::message::{Message, ToolSpec};
@@ -15,6 +18,15 @@ use tokio_util::sync::CancellationToken;
 const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(180);
 const MAX_ATTEMPTS: u32 = 3;
 
+/// A stream of raw SSE bytes, with the transport error erased to a common type
+/// so the live HTTP stream and a cassette's recorded bytes are interchangeable.
+pub(crate) type SseSource = Pin<
+    Box<
+        dyn Stream<Item = std::result::Result<Bytes, Box<dyn std::error::Error + Send + Sync>>>
+            + Send,
+    >,
+>;
+
 pub struct OpenAiProvider {
     client: Client,
     base_url: String,
@@ -22,6 +34,8 @@ pub struct OpenAiProvider {
     model: String,
     name: String,
     stream_usage: bool,
+    /// When set, raw SSE bytes are recorded here for cassette capture.
+    recorder: Option<std::sync::Arc<crate::cassette::Recorder>>,
 }
 
 impl OpenAiProvider {
@@ -51,11 +65,19 @@ impl OpenAiProvider {
             model: model.into(),
             name: name.into(),
             stream_usage: true,
+            recorder: None,
         })
     }
 
     pub fn with_stream_usage(mut self, stream_usage: bool) -> Self {
         self.stream_usage = stream_usage;
+        self
+    }
+
+    /// Capture raw SSE bytes from every response this provider sees, so a real
+    /// session can be replayed later as a cassette. See [`crate::cassette`].
+    pub fn with_recorder(mut self, recorder: std::sync::Arc<crate::cassette::Recorder>) -> Self {
+        self.recorder = Some(recorder);
         self
     }
 
@@ -188,75 +210,167 @@ impl Provider for OpenAiProvider {
     ) -> Result<ProviderStream> {
         let body = self.request_body(&request);
         let response = self.send_with_retry(&body).await?;
-        let mut source = response.bytes_stream().eventsource();
 
-        let model = self.model.clone();
-        let provider_name = self.name.clone();
-
-        let stream = try_stream! {
-            let mut finish_reason: Option<String> = None;
-            let mut done = false;
-
-            loop {
-                let next = tokio::select! {
-                    _ = cancel.cancelled() => None,
-                    result = tokio::time::timeout(STREAM_IDLE_TIMEOUT, source.next()) => Some(result),
-                };
-
-                let event = match next {
-                    None => {
-                        Err(Error::Cancelled)?;
-                        unreachable!();
-                    }
-                    Some(Err(_)) => {
-                        Err(Error::Provider(format!(
-                            "{provider_name} stream timed out after {}s",
-                            STREAM_IDLE_TIMEOUT.as_secs()
-                        )))?;
-                        unreachable!();
-                    }
-                    Some(Ok(None)) => break,
-                    Some(Ok(Some(Err(error)))) => {
-                        Err(Error::Provider(format!("{provider_name} stream error: {error}")))?;
-                        unreachable!();
-                    }
-                    Some(Ok(Some(Ok(event)))) => event,
-                };
-
-                let data = event.data;
-                if data.trim().is_empty() {
-                    continue;
-                }
-                if data.trim() == "[DONE]" {
-                    yield ProviderEvent::Done { finish_reason: finish_reason.take() };
-                    done = true;
-                    break;
-                }
-
-                let value: Value = serde_json::from_str(&data).map_err(|error| {
-                    Error::Provider(format!(
-                        "{provider_name} sent invalid stream JSON: {error}: {}",
-                        truncate(&data, 500)
-                    ))
-                })?;
-
-                let parsed = parse_chunk(&value, &model, &provider_name)?;
-                if let Some(reason) = parsed.finish_reason {
-                    finish_reason = Some(reason);
-                }
-                for item in parsed.events {
-                    yield item;
-                }
-            }
-
-            if !done {
-                yield ProviderEvent::Done { finish_reason };
-            }
+        let source: SseSource = if let Some(recorder) = &self.recorder {
+            // Tap the raw bytes before they reach the parser: a cassette must
+            // hold the original response so replay exercises the real path.
+            let recorder = recorder.clone();
+            Box::pin(RecordingSource {
+                inner: Box::pin(response.bytes_stream().map(|result| {
+                    result.map_err(|error| {
+                        Box::new(error) as Box<dyn std::error::Error + Send + Sync>
+                    })
+                })),
+                recorder,
+                request_fingerprint: crate::cassette::request_fingerprint(&request),
+                closed: false,
+            })
+        } else {
+            Box::pin(response.bytes_stream().map(|result| {
+                result.map_err(|error| Box::new(error) as Box<dyn std::error::Error + Send + Sync>)
+            }))
         };
 
-        Ok(Box::pin(stream))
+        sse_events(source, &self.model, &self.name, cancel)
     }
 }
+
+/// Parse a raw SSE byte stream into provider events.
+///
+/// Both the live HTTP path and cassette replay run through this function, so a
+/// replayed cassette exercises the same framing, `[DONE]` handling, error
+/// surfacing, and chunk parsing as a real response rather than bypassing them.
+pub(crate) fn sse_events(
+    source: SseSource,
+    model: &str,
+    provider_name: &str,
+    cancel: CancellationToken,
+) -> Result<ProviderStream> {
+    let model = model.to_string();
+    let provider_name = provider_name.to_string();
+    let mut source = source.eventsource();
+
+    let stream = try_stream! {
+        let mut finish_reason: Option<String> = None;
+        let mut done = false;
+
+        loop {
+            let next = tokio::select! {
+                _ = cancel.cancelled() => None,
+                result = tokio::time::timeout(STREAM_IDLE_TIMEOUT, source.next()) => Some(result),
+            };
+
+            let event = match next {
+                None => {
+                    Err(Error::Cancelled)?;
+                    unreachable!();
+                }
+                Some(Err(_)) => {
+                    Err(Error::Provider(format!(
+                        "{provider_name} stream timed out after {}s",
+                        STREAM_IDLE_TIMEOUT.as_secs()
+                    )))?;
+                    unreachable!();
+                }
+                Some(Ok(None)) => break,
+                Some(Ok(Some(Err(error)))) => {
+                    Err(Error::Provider(format!("{provider_name} stream error: {error}")))?;
+                    unreachable!();
+                }
+                Some(Ok(Some(Ok(event)))) => event,
+            };
+
+            let data = event.data;
+            if data.trim().is_empty() {
+                continue;
+            }
+            if data.trim() == "[DONE]" {
+                yield ProviderEvent::Done { finish_reason: finish_reason.take() };
+                done = true;
+                break;
+            }
+
+            let value: Value = serde_json::from_str(&data).map_err(|error| {
+                Error::Provider(format!(
+                    "{provider_name} sent invalid stream JSON: {error}: {}",
+                    truncate(&data, 500)
+                ))
+            })?;
+
+            let parsed = parse_chunk(&value, &model, &provider_name)?;
+            if let Some(reason) = parsed.finish_reason {
+                finish_reason = Some(reason);
+            }
+            for item in parsed.events {
+                yield item;
+            }
+        }
+
+        if !done {
+            yield ProviderEvent::Done { finish_reason };
+        }
+    };
+
+    Ok(Box::pin(stream))
+}
+
+/// A byte stream that copies everything it sees into a [`crate::cassette::Recorder`]
+/// and closes the entry when the response ends.
+///
+/// Errors pass straight through: recording must never change how a transport
+/// failure surfaces.
+struct RecordingSource {
+    inner: Pin<Box<dyn Stream<Item = SseItem> + Send>>,
+    recorder: std::sync::Arc<crate::cassette::Recorder>,
+    request_fingerprint: String,
+    closed: bool,
+}
+
+impl Stream for RecordingSource {
+    type Item = SseItem;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        match this.inner.as_mut().poll_next(cx) {
+            std::task::Poll::Ready(Some(item)) => {
+                if let Ok(bytes) = &item {
+                    this.recorder.capture(bytes);
+                }
+                std::task::Poll::Ready(Some(item))
+            }
+            std::task::Poll::Ready(None) => {
+                this.close();
+                std::task::Poll::Ready(None)
+            }
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
+impl RecordingSource {
+    fn close(&mut self) {
+        if !self.closed {
+            self.closed = true;
+            let fingerprint = std::mem::take(&mut self.request_fingerprint);
+            if !fingerprint.is_empty() {
+                self.recorder.close_response(fingerprint);
+            }
+        }
+    }
+}
+
+/// The entry closes on drop, not on stream exhaustion: the parser stops polling
+/// as soon as it sees `[DONE]`, which every real provider sends.
+impl Drop for RecordingSource {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+type SseItem = std::result::Result<Bytes, Box<dyn std::error::Error + Send + Sync>>;
 
 struct ParsedChunk {
     events: Vec<ProviderEvent>,

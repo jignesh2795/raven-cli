@@ -16,7 +16,7 @@ pub struct ChatRequest {
     pub max_tokens: Option<u32>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ProviderEvent {
     TextDelta(String),
     ToolCallDelta {
