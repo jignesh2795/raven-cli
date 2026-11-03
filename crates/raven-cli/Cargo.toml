@@ -27,3 +27,7 @@ serde_json.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 toml.workspace = true
+
+[dev-dependencies]
+async-stream.workspace = true
+tempfile.workspace = true

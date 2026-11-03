@@ -11,8 +11,10 @@ include real credentials. No public disclosure before a fix is available.
 
 ## Status
 
-- **Version:** 0.1.0 (M0)
-- **Execution mode:** read-only. No file writes, no agent-initiated child
+- **Version:** 0.1.0 (M1)
+- **Execution mode:** file writes under the `workspace-write` policy. Every edit
+  is exact search/replace, atomic, hash-verified, and shown to the human for
+  approval before it is written. No command execution, no agent-initiated child
   processes, no network tools. `doctor` runs `git --version` as a version probe.
 - **OS sandbox:** not implemented. `raven doctor` reports MXC/AppContainer as
   *planned*, not available.
@@ -73,11 +75,14 @@ reports the actual backend and its limits.
 
 - **No OS containment boundary.** Path policy and redaction live in the same
   process as the agent. A compromised binary or dependency can bypass both.
-- **No write or network isolation at the OS level.** M0 does not need it for its
-  own tools, but it does not constrain a compromised process.
+- **No write or network isolation at the OS level.** Edits are confined by the
+  in-process path policy, which a compromised process could ignore; containment
+  arrives with M3.
 - **Redaction is not complete.** Unknown secret formats, high-entropy strings
   without a recognizable prefix, and secrets already present in the user's
-  prompt are not reliably caught. Canary end-to-end tests are M1 work.
+  prompt are not reliably caught. `crates/raven-cli/tests/canary.rs` plants
+  known formats in a workspace and proves none reach a provider payload, the
+  audit log, or an approval diff; it is a regression test, not a proof.
 - **No hardlink protection.** A hard link created inside the workspace can
   reference content outside it. Detecting hardlinks requires OS-level checks and
   belongs with the M3 sandbox.

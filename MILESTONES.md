@@ -54,13 +54,19 @@ capabilities that need containment.
 - Workspace-write policy with re-checks at write time (TOCTOU-aware).
 - SQLite projection over the event log; rebuildable from JSONL.
 - Secret canary suite proving canaries never reach provider payloads, logs, or
-  error output; entropy detection where practical.
+  error output; entropy detection where practical. **Canary suite done** (see
+  below); entropy detection still M1.
 - Provider record/replay cassettes for deterministic tests.
 - Workspace trust gate for project-local configuration.
 
 **Exit:** atomic edits preserve EOL/BOM; path-policy tests cover symlink,
 junction, and protected-path cases; canaries never leave; replay fixtures are
 stable across runs.
+
+**Progress (2026-11-03):** edit + create + approval + audit hardening landed
+(commit `c249bbd`); secret canary suite landed in the next commit. Remaining M1:
+SQLite projection, provider record/replay cassettes, workspace trust gate,
+entropy detection.
 
 ## M2 — Command runner + best-effort containment
 
