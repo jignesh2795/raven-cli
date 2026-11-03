@@ -7,13 +7,14 @@ mod doctor;
 mod prompt;
 mod render;
 mod sessions;
+mod trust;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
 use clap::{Args, Parser, Subcommand};
-use raven_core::agent::{Agent, AgentConfig, RunSummary};
+use raven_core::agent::{Agent, AgentConfig, Observer, RunSummary};
 use raven_core::cost::CostTracker;
 use raven_core::policy::{PathPolicy, Policy, PolicyMode};
 use raven_core::redact::Redactor;
@@ -65,6 +66,18 @@ enum Command {
         json: bool,
         #[arg(long, default_value_t = 20)]
         limit: usize,
+    },
+    /// Manage trust for a project-local raven.toml.
+    Trust {
+        /// Workspace to act on. Defaults to the current directory.
+        #[arg(long)]
+        workspace: Option<std::path::PathBuf>,
+        /// Trust the workspace after showing what its config would change.
+        #[arg(long, conflicts_with = "revoke")]
+        grant: bool,
+        /// Remove trust; the project file stops being read.
+        #[arg(long)]
+        revoke: bool,
     },
     /// Print a session's event log.
     Show {
@@ -172,11 +185,20 @@ async fn dispatch(cli: Cli) -> Result<ExitCode> {
             sessions::show(&config::data_dir()?, &session_id, json)?;
             Ok(ExitCode::SUCCESS)
         }
+        Command::Trust {
+            workspace,
+            grant,
+            revoke,
+        } => trust::command(
+            workspace.unwrap_or_else(|| std::env::current_dir().unwrap_or_default()),
+            grant,
+            revoke,
+        )
+        .map(|()| ExitCode::SUCCESS),
     }
 }
 
 async fn cmd_run(args: RunArgs, config_path: Option<PathBuf>) -> Result<ExitCode> {
-    let cfg = config::Config::load(config_path)?;
     let prompt = args.prompt.join(" ").trim().to_string();
     if prompt.is_empty() {
         return Err(Error::Config("prompt is empty".into()));
@@ -193,6 +215,9 @@ async fn cmd_run(args: RunArgs, config_path: Option<PathBuf>) -> Result<ExitCode
         ))
     })?;
 
+    // The trust gate decides whether the project-local file is read at all.
+    let (cfg, project_state) = config::Config::load_resolved(config_path, &workspace)?;
+
     let provider_name = args
         .provider
         .clone()
@@ -206,7 +231,10 @@ async fn cmd_run(args: RunArgs, config_path: Option<PathBuf>) -> Result<ExitCode
     )?;
     let api_key = auth::resolve_key(&resolved, args.api_key_env.as_deref())?;
 
-    let max_turns = args.max_turns.unwrap_or(cfg.max_turns).max(1);
+    let max_turns = args
+        .max_turns
+        .unwrap_or_else(|| cfg.effective_max_turns())
+        .max(1);
     let max_cost = args.max_cost.or(cfg.max_cost_usd);
     let pricing = cfg.pricing.get(&resolved.model).copied();
     if max_cost.is_some() && pricing.is_none() {
@@ -219,7 +247,7 @@ async fn cmd_run(args: RunArgs, config_path: Option<PathBuf>) -> Result<ExitCode
     let policy_mode = if args.read_only {
         PolicyMode::ReadOnly
     } else {
-        cfg.policy.unwrap_or(PolicyMode::WorkspaceWrite)
+        cfg.effective_policy()
     };
     let policy = match policy_mode {
         PolicyMode::ReadOnly => Policy::read_only(),
@@ -236,7 +264,7 @@ async fn cmd_run(args: RunArgs, config_path: Option<PathBuf>) -> Result<ExitCode
     )?);
 
     let path_policy = Arc::new(PathPolicy::new(&workspace)?);
-    let redactor = Arc::new(Redactor::with_enabled(cfg.redact));
+    let redactor = Arc::new(Redactor::with_enabled(cfg.effective_redact()));
     let system_prompt = prompt::build(&workspace, &path_policy, &redactor, policy_mode)?;
     let tools = Arc::new(match policy_mode {
         PolicyMode::ReadOnly => raven_tools::read_only_registry(),
@@ -293,6 +321,13 @@ async fn cmd_run(args: RunArgs, config_path: Option<PathBuf>) -> Result<ExitCode
         model: resolved.model.clone(),
     };
 
+    // A trusted project config changed this run's behaviour; say so in the log
+    // and in the JSON stream rather than applying it silently.
+    if let Some(notice) = project_state.notice() {
+        observer.on_notice(&notice);
+        store.note(&notice, json!({ "project_config": project_state.label() }))?;
+    }
+
     let mut agent = Agent::new(
         store.session_id().to_string(),
         system_prompt,
@@ -304,7 +339,7 @@ async fn cmd_run(args: RunArgs, config_path: Option<PathBuf>) -> Result<ExitCode
         redactor,
         path_policy,
         workspace.clone(),
-        cfg.output_cap,
+        cfg.effective_output_cap(),
         agent_config,
         CostTracker::new(pricing, max_cost),
         cancel,

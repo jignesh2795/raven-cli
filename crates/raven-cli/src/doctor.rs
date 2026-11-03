@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use raven_core::policy::PolicyMode;
 use raven_core::Result;
 
 use crate::auth;
@@ -28,8 +27,18 @@ pub fn run(config_path: Option<PathBuf>) -> Result<()> {
     println!("workspace: {}", workspace.display());
     println!(
         "policy:    {} (edits require approval unless --yes)",
-        config.policy.unwrap_or(PolicyMode::WorkspaceWrite).label()
+        config.effective_policy().label()
     );
+    let trust: String = match crate::trust::project_config_state(&workspace) {
+        crate::trust::ProjectState::NotFound => "no project-local raven.toml".into(),
+        crate::trust::ProjectState::Untrusted => {
+            "project-local raven.toml present but IGNORED (run `raven trust`)".into()
+        }
+        crate::trust::ProjectState::Trusted => {
+            "project-local raven.toml trusted and applied".into()
+        }
+    };
+    println!("trust:     {trust}");
     println!("git:       {}", git_version());
     println!(
         "agents:    {}",

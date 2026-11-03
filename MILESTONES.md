@@ -57,16 +57,26 @@ capabilities that need containment.
   error output; entropy detection where practical. **Canary suite done** (see
   below); entropy detection still M1.
 - Provider record/replay cassettes for deterministic tests.
-- Workspace trust gate for project-local configuration.
+- Workspace trust gate for project-local configuration. **Done** (2026-11-03).
 
 **Exit:** atomic edits preserve EOL/BOM; path-policy tests cover symlink,
 junction, and protected-path cases; canaries never leave; replay fixtures are
 stable across runs.
 
 **Progress (2026-11-03):** edit + create + approval + audit hardening landed
-(commit `c249bbd`); secret canary suite landed in the next commit. Remaining M1:
-SQLite projection, provider record/replay cassettes, workspace trust gate,
-entropy detection.
+(commit `c249bbd`); secret canary suite landed next; workspace trust gate
+landed after that. Remaining M1: SQLite projection, provider record/replay
+cassettes, entropy detection.
+
+**Trust gate (2026-11-03):** project-local `raven.toml` is ignored until
+`raven trust --grant`. Records live in `trust.json` under the data dir, keyed
+by canonical workspace path and pinned to the SHA-256 of the reviewed file, so
+editing the file invalidates trust. The project layer only fills fields the
+user has not set and never touches credential selection. Granting requires a
+terminal and fails closed in non-interactive runs. `Config` fields that a
+project layer may supply are now `Option` (`effective_*` accessors resolve
+them), which is how "the user set it" is distinguished from "the default
+applies".
 
 ## M2 — Command runner + best-effort containment
 

@@ -14,6 +14,11 @@ mod read_file;
 mod search;
 mod write_support;
 
+/// Atomic file write used by the write tools. Also used by `raven trust` to
+/// persist the trust store, so every file Raven writes goes through the same
+/// temp-file + fsync + atomic-replace path.
+pub use write_support::atomic_write;
+
 pub use create_file::CreateFileTool;
 pub use edit_file::EditFileTool;
 pub use list_dir::ListDirTool;

@@ -6,7 +6,6 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use raven_core::{Error, Result};
-use sha2::{Digest, Sha256};
 
 pub const MAX_FILE_BYTES: usize = 4 * 1024 * 1024;
 
@@ -74,7 +73,7 @@ pub fn encode(text: &str, bom: bool) -> Vec<u8> {
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
-    hex::encode(Sha256::digest(bytes))
+    raven_core::util::sha256_hex(bytes)
 }
 
 /// Write `bytes` to a temporary file in the target directory, sync it, verify

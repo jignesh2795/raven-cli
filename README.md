@@ -148,6 +148,7 @@ raven show <session-id>
 | `raven auth delete <provider>` | Remove a stored key. |
 | `raven doctor` | Check config, credentials, workspace, git, and sandbox probes. |
 | `raven sessions [--json] [--limit N]` | List recent sessions. |
+| `raven trust [--grant \| --revoke] [--workspace PATH]` | Review, trust, or revoke a project-local `raven.toml`. |
 | `raven show <session-id> [--json]` | Print a session with chain verification. |
 
 ### `run` options
@@ -219,9 +220,24 @@ session stops.
 instructions, logs, and display. It exists for debugging only; do not use it
 with untrusted repositories or real credentials.
 
-Project-local `raven.toml` files are **ignored** until a workspace trust gate
-exists (planned for M1). A cloned repository must not be able to choose your
-endpoint or key source.
+## Project-local configuration
+
+A repository can ship its own `raven.toml`. It is **ignored** until you trust
+that workspace:
+
+```powershell
+raven trust                 # show what it would change, and the current state
+raven trust --grant         # review it and trust it (interactive)
+raven trust --revoke        # stop honoring it
+```
+
+Trust is stored per workspace and pinned to the SHA-256 of the exact file you
+reviewed, so editing `raven.toml` invalidates trust and the file is ignored
+again until you re-trust it. Granting requires a terminal; a non-interactive run
+fails closed. A trusted project file can fill in settings you have not set —
+model, endpoint, `max_turns`, `policy` — but can never override your own config,
+and it cannot change where your API key comes from. `raven doctor` reports
+whether a project file is being used.
 
 ## Sessions and audit
 
@@ -357,7 +373,7 @@ cargo test -p raven-cli --test canary
 | Milestone | Scope | Status |
 | --- | --- | --- |
 | M0 | Provider streaming + read-only loop, cancellation, accounting, event log | Implemented |
-| M1 | Safe edits, workspace-write policy, audit hardening, secret canaries | Implemented (SQLite, cassettes, trust gate, entropy remaining) |
+| M1 | Safe edits, workspace-write policy, audit hardening, secret canaries, trust gate | Implemented (SQLite, cassettes, entropy remaining) |
 | M2 | Command runner, best-effort containment, output limits | Planned |
 | M3 | MXC + AppContainer sandbox, compatibility profiles, escape suite | Planned |
 | M4 | Git checkpoints and undo | Planned |

@@ -16,5 +16,6 @@ pub mod policy;
 pub mod provider;
 pub mod redact;
 pub mod tool;
+pub mod util;
 
 pub use error::{Error, Result};

@@ -68,9 +68,15 @@ reports the actual backend and its limits.
    workspace root. Traversal, device paths, named pipes, `.git` components, and
    secret-bearing filenames (`.env*`, private keys, `.npmrc`, `.pypirc`,
    credential stores) are denied.
-3. **No project-controlled configuration.** Only the user config
-   (`%APPDATA%\raven\raven.toml`, `--config`, or `RAVEN_CONFIG`) is loaded. A
-   cloned repository cannot choose the endpoint or key source.
+3. **Project config needs explicit trust.** A project-local `raven.toml` is
+   ignored until you run `raven trust --grant` for that workspace. Trust is
+   pinned to the SHA-256 of the exact file you reviewed, so editing the file
+   invalidates it. Granting requires a terminal and fails closed otherwise. A
+   trusted project file may fill in settings you left unset but never overrides
+   your own config, and it cannot change which environment variable or keyring
+   entry supplies the key. `raven doctor` reports whether a project file is in
+   use and the session log records the decision. This is a process-level
+   control: a malicious process running as you can edit `trust.json`.
 4. **Credential handling.** `raven auth set` stores keys in Windows Credential
    Manager (service `raven-cli`). Keys are not written to `raven.toml` or the
    event log.
