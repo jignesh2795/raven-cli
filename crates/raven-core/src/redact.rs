@@ -5,11 +5,15 @@ use serde_json::Value;
 
 /// Best-effort secret redaction applied before content reaches a model, the
 /// event log, or the terminal. This is a mitigation, not a proof: new secret
-/// formats need new patterns, and entropy-based detection is intentionally
-/// left for M1.
+/// formats need new patterns. Entropy-based detection covers candidate strings
+/// that match no known format; see [`crate::entropy`] for what it does and does
+/// not catch.
 #[derive(Debug, Clone)]
 pub struct Redactor {
     enabled: bool,
+    /// Run the entropy pass. On by default; can be turned off without disabling
+    /// pattern redaction.
+    entropy: bool,
 }
 
 struct Pattern {
@@ -26,9 +30,12 @@ static PATTERNS: LazyLock<Vec<Pattern>> = LazyLock::new(|| {
         });
     };
 
-    // key = value / key: value forms.
+    // key = value / key: value forms. The key list is deliberately broad:
+    // matching a credential-sounding key redacts the whole value, whatever its
+    // format, which is what catches vendor-specific formats this file has never
+    // heard of.
     add(
-        r#"(?i)(api[_-]?key|access[_-]?token|secret|password|passwd|pwd)(\s*[:=]\s*["']?)([A-Za-z0-9_\-./+=]{8,})"#,
+        r#"(?i)(api[_-]?key|apikey|access[_-]?key|access[_-]?token|auth[_-]?token|bearer[_-]?token|client[_-]?secret|secret[_-]?key|token|secret|password|passwd|pwd|credential|private[_-]?key|signature|session[_-]?key|cookie)(\s*[:=]\s*["']?)([A-Za-z0-9_\-./+=]{8,})"#,
         "${1}${2}[REDACTED]",
     );
     add(r"sk-[A-Za-z0-9_-]{20,}", "sk-[REDACTED]");
@@ -58,19 +65,59 @@ static ANSI_SINGLE: LazyLock<Regex> =
 static C1_CSI: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\u{9b}[0-?]*[ -/]*[@-~]").expect("c1 csi regex"));
 
+/// A run of credential-plausible characters: base64 plus the punctuation that
+/// shows up in API material. Quotes, colons, and brackets are excluded so that
+/// JSON punctuation, URLs, and the redaction markers themselves never match.
+static BARE_TOKEN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[A-Za-z0-9+/_.=-]{32,}").expect("bare token regex"));
+
+const HIGH_ENTROPY_MARKER: &str = "[HIGH-ENTROPY]";
+
+/// Replace candidate strings that match no known pattern but are too random to
+/// be identifiers or prose.
+///
+/// This runs after the known formats, so anything already replaced by a marker
+/// is no longer a candidate. Hits are marked distinctly from known secrets:
+/// a reader can tell a heuristic match (possibly a false positive) from a
+/// recognised credential.
+fn redact_high_entropy(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut last = 0;
+
+    for candidate in BARE_TOKEN.find_iter(input) {
+        let text = candidate.as_str();
+        if crate::entropy::looks_like_secret_material(text) {
+            output.push_str(&input[last..candidate.start()]);
+            output.push_str(HIGH_ENTROPY_MARKER);
+            last = candidate.end();
+        }
+    }
+    output.push_str(&input[last..]);
+    output
+}
+
 impl Default for Redactor {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            entropy: true,
+        }
     }
 }
 
 impl Redactor {
     pub fn disabled() -> Self {
-        Self { enabled: false }
+        Self {
+            enabled: false,
+            entropy: false,
+        }
     }
 
     pub fn with_enabled(enabled: bool) -> Self {
-        Self { enabled }
+        Self {
+            enabled,
+            entropy: enabled,
+        }
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -88,7 +135,18 @@ impl Redactor {
                 .replace_all(&output, pattern.replacement)
                 .into_owned();
         }
+        if self.entropy {
+            output = redact_high_entropy(&output);
+        }
         output
+    }
+
+    /// Turn the entropy pass off while keeping pattern redaction. Useful when
+    /// reading source full of base64 fixtures where the heuristic produces
+    /// noise.
+    pub fn with_entropy(mut self, entropy: bool) -> Self {
+        self.entropy = entropy;
+        self
     }
 
     pub fn redact_json(&self, value: &mut Value) {
@@ -173,6 +231,86 @@ mod tests {
     fn strips_terminal_escapes() {
         let input = "hello\x1b[31m red\x1b[0m \x1b]0;title\x07world";
         assert_eq!(strip_ansi(input), "hello red world");
+    }
+
+    #[test]
+    fn redacts_a_vendor_format_no_pattern_knows() {
+        // No recognised prefix: only the key name and the value's randomness.
+        let redactor = Redactor::default();
+        let input = "NVIDIA_API_TOKEN = \"Tn4pXq8Rw2Zb6Ky1Ms7Hd3Lg9Cf5Vj0Qe\"";
+        let output = redactor.redact(input);
+        assert!(
+            !output.contains("Tn4pXq8Rw2Zb6Ky1Ms7Hd3Lg9Cf5Vj0Qe"),
+            "the token leaked: {output}"
+        );
+        assert!(output.contains("[REDACTED]") || output.contains("[HIGH-ENTROPY]"));
+    }
+
+    #[test]
+    fn redacts_a_bare_token_with_no_key_name_at_all() {
+        let redactor = Redactor::default();
+        let input = "found in scratch.txt: aG7kQ9xZ3mLp2wR5tB8nV4cJ1hD6sF0uY";
+        let output = redactor.redact(input);
+        assert!(
+            !output.contains("aG7kQ9xZ3mLp2wR5tB8nV4cJ1hD6sF0uY"),
+            "the bare token leaked: {output}"
+        );
+    }
+
+    #[test]
+    fn entropy_pass_keeps_identifiers_and_hashes() {
+        // These are the false positives that would make the agent useless if
+        // the heuristic were loose, so each is asserted to survive.
+        let redactor = Redactor::default();
+        let samples = [
+            "commit 0123456789abcdef0123456789abcdef01234567",
+            "sha256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "request id 550e8400-e29b-41d4-a716-446655440000",
+            "async fn getUserProfileByAccountIdentifier",
+            "https://example.com/path/to/the/configuration/resource",
+        ];
+        for sample in samples {
+            let output = redactor.redact(sample);
+            assert_eq!(
+                output, sample,
+                "redaction destroyed legitimate content in: {sample}"
+            );
+        }
+    }
+
+    #[test]
+    fn entropy_pass_can_be_disabled_without_losing_patterns() {
+        // With a key name present, both passes agree; use a bare token to
+        // isolate what the entropy pass actually contributes.
+        let bare = "aG7kQ9xZ3mLp2wR5tB8nV4cJ1hD6sF0uY";
+
+        let with_entropy = Redactor::default().redact(bare);
+        assert!(
+            with_entropy.contains("[HIGH-ENTROPY]"),
+            "the entropy pass should mask a bare token: {with_entropy}"
+        );
+
+        let without = Redactor::default().with_entropy(false).redact(bare);
+        assert_eq!(without, bare, "disabling entropy must leave it untouched");
+
+        let keyed = "token = \"aG7kQ9xZ3mLp2wR5tB8nV4cJ1hD6sF0uY\"";
+        assert!(
+            Redactor::default()
+                .with_entropy(false)
+                .redact(keyed)
+                .contains("[REDACTED]"),
+            "key-based redaction must survive with entropy off"
+        );
+    }
+
+    #[test]
+    fn markers_are_not_redacted_again() {
+        // The redaction markers must not be re-matched as candidates, or output
+        // would lose the marker itself.
+        let redactor = Redactor::default();
+        let once = redactor.redact("token = aG7kQ9xZ3mLp2wR5tB8nV4cJ1hD6sF0uY");
+        let twice = redactor.redact(&once);
+        assert_eq!(once, twice, "redaction is not idempotent");
     }
 
     #[test]

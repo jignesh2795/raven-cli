@@ -108,9 +108,15 @@ reports the actual backend and its limits.
 - **No write or network isolation at the OS level.** Edits are confined by the
   in-process path policy, which a compromised process could ignore; containment
   arrives with M3.
-- **Redaction is not complete.** Unknown secret formats, high-entropy strings
-  without a recognizable prefix, and secrets already present in the user's
-  prompt are not reliably caught. `crates/raven-cli/tests/canary.rs` plants
+- **Redaction is not complete.** Unknown secret formats, and secrets already
+  present in the user's prompt, are not reliably caught. Entropy detection
+  covers unknown formats heuristically, but it is a heuristic: it will both
+  miss unusual credentials and flag legitimate random-looking content. Hits are
+  marked `[HIGH-ENTROPY]` rather than `[REDACTED]` so a reader can tell a
+  heuristic match from a recognised secret, and `Redactor::with_entropy(false)`
+  turns the pass off without losing pattern redaction. The pass deliberately
+  keeps git SHAs, SHA-256 digests, UUIDs, and identifiers untouched — see
+  `crates/raven-core/src/entropy.rs`. `crates/raven-cli/tests/canary.rs` plants
   known formats in a workspace and proves none reach a provider payload, the
   audit log, or an approval diff; it is a regression test, not a proof.
 - **No hardlink protection.** A hard link created inside the workspace can

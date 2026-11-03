@@ -54,8 +54,10 @@ capabilities that need containment.
 - Workspace-write policy with re-checks at write time (TOCTOU-aware).
 - SQLite projection over the event log; rebuildable from JSONL.
 - Secret canary suite proving canaries never reach provider payloads, logs, or
-  error output; entropy detection where practical. **Canary suite done** (see
-  below); entropy detection still M1.
+  error output; entropy detection where practical. **Both done.** Canary suite
+  and entropy detection landed alongside the gate; the entropy pass is
+  deliberately conservative (keeps git SHAs, digests, and UUIDs) and marks hits
+  `[HIGH-ENTROPY]`.
 - Provider record/replay cassettes for deterministic tests.
 - Workspace trust gate for project-local configuration. **Done** (2026-11-03).
 
@@ -63,10 +65,14 @@ capabilities that need containment.
 junction, and protected-path cases; canaries never leave; replay fixtures are
 stable across runs.
 
+**Exit status:** atomic edits, EOL/BOM preservation, symlink and junction
+policy, canary suite, trust gate, and entropy detection are all done and
+tested. The replay-fixture and SQLite clauses remain.
+
 **Progress (2026-11-03):** edit + create + approval + audit hardening landed
 (commit `c249bbd`); secret canary suite landed next; workspace trust gate
-landed after that. Remaining M1: SQLite projection, provider record/replay
-cassettes, entropy detection.
+landed after that; entropy detection followed. Remaining M1: SQLite projection
+and provider record/replay cassettes.
 
 **Trust gate (2026-11-03):** project-local `raven.toml` is ignored until
 `raven trust --grant`. Records live in `trust.json` under the data dir, keyed

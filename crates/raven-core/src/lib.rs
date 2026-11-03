@@ -9,6 +9,7 @@
 
 pub mod agent;
 pub mod cost;
+pub mod entropy;
 pub mod error;
 pub mod events;
 pub mod message;

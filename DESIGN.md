@@ -243,6 +243,27 @@ and covered by tests that assert a crafted rule set still cannot exceed them:
 trailing dots or ADS suffixes, a project-supplied rule, and a rule that
 narrows the hard set.
 
+## Redaction and entropy
+
+Pattern redaction catches secret formats the file has seen. Entropy detection
+(`crates/raven-core/src/entropy.rs`) adds a heuristic for the rest.
+
+The heuristic is gated, not blanket. A coding agent that cannot distinguish a
+git SHA from a secret stops being useful, so a candidate is redacted only when
+it is >= 32 characters, uses >= 2 character classes, is not all hex, is not
+UUID-shaped, and has Shannon entropy >= 4.6 bits/char. Hits are marked
+`[HIGH-ENTROPY]`, not `[REDACTED]`, so a reader can tell a heuristic match
+(possibly a false positive) from a recognised credential.
+
+The pass runs after pattern redaction, so already-masked values are no longer
+candidates, and it is idempotent. `Redactor::with_entropy(false)` disables it
+without giving up pattern redaction, which is the right escape hatch for source
+trees full of base64 fixtures.
+
+Remaining gap: a secret that is short, or that looks like natural language, is
+still missed. That needs either provider-side handling or a purge of the
+workspace before it reaches the model.
+
 ## Git checkpoints (M4)
 
 Use `git commit-tree` with a temporary index and temporary refs; never touch the
