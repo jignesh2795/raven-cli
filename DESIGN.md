@@ -200,6 +200,10 @@ targets are resolved. A failed verification leaves the original untouched.
 
 ## Approval model (M2)
 
+**Status (2026-11-04): implemented as slice A** in
+`crates/raven-core/src/ruleset.rs`. The command runner itself is M2-B. Layers
+and resolution order match this section.
+
 M1 approvals are all-or-nothing and that is sufficient for files: an edit either
 gets shown and approved or it does not. Commands need a spectrum — `cargo test`
 and `rm -rf` are both "execute" and must not get the same answer. M2 introduces

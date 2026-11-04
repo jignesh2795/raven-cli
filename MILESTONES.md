@@ -104,14 +104,26 @@ applies".
 
 ## M2 — Command runner + best-effort containment
 
-Per-approval modes are not enough for commands (`cargo test` and `rm -rf` are
-both "execute"), so M2 adds the ruleset described in
-[DESIGN.md](DESIGN.md#approval-model-m2): hard rules first, then user config,
-then session, then trusted project, then `Ask`, with an unmatched request never
-defaulting to allow.
+M2 slice A (ruleset) is **done** as of 2026-11-04 (`8fbe17c`). Command
+execution cannot be gated by a single mode, so commands and paths now resolve
+through a `(subject, pattern, action)` ruleset with hard compiled-in denies:
 
-- Ruleset policy `(subject, pattern, action)` with hard, non-overridable rules.
-- Command execution with explicit approval modes.
+- Layers: Hard > User > Session > Project. First match wins. Unmatched requests
+  fall back to `Ask`, never `Allow`.
+- Blanket Allow patterns are rejected at construction.
+- Hard rules cover protected paths in root and nested form and commands that
+  obviously reach the network. They are invariants, not preferences, and live in
+  code where no config can widen them.
+- `Policy` now carries the ruleset and exposes `resolve_command`,
+  `resolve_write_path`, and `extend_rules`.
+
+Not done: the command runner itself. No child processes are spawned. The next
+slices add the Job Object + `KILL_ON_JOB_CLOSE` launch, sanitized environment,
+working-directory confinement, timeout, and output caps (M2-B), and ConPTY where
+a real terminal is required (M2-C).
+
+Per-approval modes alone are too coarse for commands: `cargo test` and
+`rm -rf` are both "execute".
 - Job Object with `KILL_ON_JOB_CLOSE`; sanitized environment; working-directory
   confinement; output caps and timeout.
 - Best-effort mode: policy + audit, **not a security boundary**.
