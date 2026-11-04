@@ -16,6 +16,7 @@ pub mod message;
 pub mod policy;
 pub mod provider;
 pub mod redact;
+pub mod ruleset;
 pub mod tool;
 pub mod util;
 

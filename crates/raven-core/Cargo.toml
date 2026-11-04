@@ -10,6 +10,7 @@ async-trait.workspace = true
 chrono.workspace = true
 dunce.workspace = true
 futures-util.workspace = true
+globset.workspace = true
 hex.workspace = true
 regex.workspace = true
 serde.workspace = true

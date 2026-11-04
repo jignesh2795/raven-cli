@@ -1060,6 +1060,7 @@ dependencies = [
  "chrono",
  "dunce",
  "futures-util",
+ "globset",
  "hex",
  "regex",
  "serde",

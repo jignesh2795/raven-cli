@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::ruleset::{hard_rules, Action, RuleSet, Subject};
 use crate::tool::ToolKind;
 use crate::{Error, Result};
 
@@ -28,9 +29,12 @@ impl PolicyMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Policy {
     mode: PolicyMode,
+    /// Compiled-in command/path rules plus any user/session/project rules added
+    /// at runtime. See [`crate::ruleset`] for layering and precedence.
+    rules: RuleSet,
 }
 
 impl Default for Policy {
@@ -43,17 +47,40 @@ impl Policy {
     pub fn read_only() -> Self {
         Self {
             mode: PolicyMode::ReadOnly,
+            rules: hard_rules(),
         }
     }
 
     pub fn workspace_write() -> Self {
         Self {
             mode: PolicyMode::WorkspaceWrite,
+            rules: hard_rules(),
         }
     }
 
     pub fn mode(&self) -> PolicyMode {
         self.mode
+    }
+
+    /// Resolve whether a command may run. Hard rules can never be relaxed by
+    /// user, session, or project rules.
+    pub fn resolve_command(&self, command: &str) -> Action {
+        self.rules.resolve(Subject::Command, command)
+    }
+
+    /// Resolve whether a path may be written.
+    pub fn resolve_write_path(&self, path: &str) -> Action {
+        self.rules.resolve(Subject::WritePath, path)
+    }
+
+    /// Add rules. Compiled on every call so a bad pattern is rejected before it
+    /// takes effect.
+    pub fn extend_rules(&mut self, rules: Vec<crate::ruleset::Rule>) -> Result<()> {
+        let layered = rules
+            .into_iter()
+            .map(|rule| (rule, crate::ruleset::Layer::User))
+            .collect();
+        self.rules.extend(layered)
     }
 
     /// Check whether a tool of this kind may run under the current policy.
@@ -314,6 +341,52 @@ pub fn is_protected_path(path: &Path) -> bool {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn unmatched_commands_ask_and_hard_denies_hold() {
+        let policy = Policy::workspace_write();
+
+        assert_eq!(
+            policy.resolve_command("cargo test"),
+            crate::ruleset::Action::Ask
+        );
+        assert_eq!(
+            policy.resolve_command("curl https://evil.example.com"),
+            crate::ruleset::Action::Deny,
+            "hard rules must not be overridable by default configuration"
+        );
+    }
+
+    #[test]
+    fn policy_exposes_the_write_path_rule_resolution() {
+        let policy = Policy::workspace_write();
+
+        assert_eq!(
+            policy.resolve_write_path(".git/config"),
+            crate::ruleset::Action::Deny,
+        );
+        assert_eq!(
+            policy.resolve_write_path("notes.txt"),
+            crate::ruleset::Action::Ask,
+        );
+    }
+
+    #[test]
+    fn user_rules_can_narrow_but_never_widen_hard_denies() {
+        let mut policy = Policy::workspace_write();
+        let allow = crate::ruleset::Rule {
+            subject: crate::ruleset::Subject::WritePath,
+            pattern: ".env".to_string(),
+            action: crate::ruleset::Action::Allow,
+        };
+        policy.extend_rules(vec![allow]).unwrap();
+
+        assert_eq!(
+            policy.resolve_write_path(".env"),
+            crate::ruleset::Action::Deny,
+            "a user allow must not lift a hard deny"
+        );
+    }
 
     #[test]
     fn denies_paths_outside_workspace() {
