@@ -456,6 +456,47 @@ api_key_env = "AWS_SECRET_ACCESS_KEY"
 }
 
 #[test]
+fn doctor_sanitizes_provider_config_before_terminal_display() {
+    let temp = tempfile::tempdir().unwrap();
+    let data = temp.path().join("data");
+    let config = temp.path().join("doctor.toml");
+    std::fs::write(
+        &config,
+        r#"
+default_provider = "mock"
+[providers."mock\\u001b[31mBAD"]
+base_url = "https://example.invalid/\\u001b]0;owned\\u0007"
+model = "model\\u001b[31mBAD"
+api_key_env = "UNUSED_TEST_API_KEY"
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(raven())
+        .arg("--config")
+        .arg(&config)
+        .arg("doctor")
+        .env("RAVEN_DATA_DIR", &data)
+        .output()
+        .unwrap();
+    assert_success(&output, "doctor with terminal-control provider config");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains('\\u{1b}'),
+        "doctor emitted a terminal escape from provider config: {stdout:?}"
+    );
+    assert!(
+        stdout.contains("mockBAD"),
+        "provider name should remain readable after sanitization: {stdout}"
+    );
+    assert!(
+        stdout.contains("modelBAD"),
+        "provider model should remain readable after sanitization: {stdout}"
+    );
+}
+
+#[test]
 fn show_and_sessions_sanitize_persistent_metadata_and_event_summaries() {
     let temp = tempfile::tempdir().unwrap();
     let data = temp.path().join("data");
