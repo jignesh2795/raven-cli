@@ -18,6 +18,7 @@
 use std::path::{Path, PathBuf};
 
 use raven_core::policy::PolicyMode;
+use raven_core::redact::{sanitize_text, Redactor};
 use raven_core::{Error, Result};
 use serde::{Deserialize, Serialize};
 
@@ -46,7 +47,7 @@ impl TrustStore {
         }
         let text = std::fs::read_to_string(&path)?;
         let records: Vec<TrustRecord> = serde_json::from_str(&text).map_err(|error| {
-            Error::Config(format!("invalid trust store '{}': {error}", path.display()))
+            Error::Config(format!("invalid trust store '{}': {error}", terminal_safe(&path.display().to_string())))
         })?;
         Ok(Self { records })
     }
@@ -57,7 +58,7 @@ impl TrustStore {
         raven_tools::atomic_write(&path, &bytes).map_err(|error| {
             Error::Config(format!(
                 "could not write the trust store '{}': {error}",
-                path.display()
+                terminal_safe(&path.display().to_string())
             ))
         })?;
         Ok(())
@@ -172,7 +173,7 @@ pub fn command(workspace: PathBuf, grant: bool, revoke: bool) -> Result<()> {
     let workspace = dunce::canonicalize(&workspace).map_err(|error| {
         Error::Config(format!(
             "workspace '{}' is not accessible: {error}",
-            workspace.display()
+            terminal_safe(&workspace.display().to_string())
         ))
     })?;
     let data_dir = crate::config::data_dir()?;
@@ -183,14 +184,14 @@ pub fn command(workspace: PathBuf, grant: bool, revoke: bool) -> Result<()> {
         store.save(&data_dir)?;
         println!(
             "trust revoked for {}\n  project-local raven.toml will be ignored again",
-            workspace.display()
+            terminal_safe(&workspace.display().to_string())
         );
         return Ok(());
     }
 
     let path = project_config_path(&workspace);
     if !path.exists() {
-        println!("no project-local raven.toml at {}", path.display());
+        println!("no project-local raven.toml at {}", terminal_safe(&path.display().to_string()));
         list_records(&data_dir)?;
         return Ok(());
     }
@@ -203,7 +204,7 @@ pub fn command(workspace: PathBuf, grant: bool, revoke: bool) -> Result<()> {
     if store.is_trusted(&workspace, &hash) {
         println!(
             "{} is trusted for its current raven.toml",
-            workspace.display()
+            terminal_safe(&workspace.display().to_string())
         );
         show_project_config(&project);
         if grant {
@@ -215,7 +216,7 @@ pub fn command(workspace: PathBuf, grant: bool, revoke: bool) -> Result<()> {
     if !grant {
         // Neither grant nor revoke: report the current state and stop. Never
         // prompt for a trust decision the user did not ask for.
-        println!("{} is NOT trusted", workspace.display());
+        println!("{} is NOT trusted", terminal_safe(&workspace.display().to_string()));
         println!("  project-local raven.toml is being ignored. It would change:");
         show_project_config(&project);
         println!("\n  run `raven trust --grant` to review and trust it");
@@ -227,7 +228,7 @@ pub fn command(workspace: PathBuf, grant: bool, revoke: bool) -> Result<()> {
     // would control. Fail closed without a terminal.
     println!(
         "This will trust the project-local config in:\n  {}",
-        path.display()
+        terminal_safe(&path.display().to_string())
     );
     show_project_config(&project);
     if !confirm("trust this workspace? [y]es / [n]o: ")? {
@@ -239,7 +240,7 @@ pub fn command(workspace: PathBuf, grant: bool, revoke: bool) -> Result<()> {
     store.save(&data_dir)?;
     println!(
         "trusted {}\n  pinned to sha256 {}",
-        workspace.display(),
+        terminal_safe(&workspace.display().to_string()),
         &hash[..16]
     );
     Ok(())
@@ -248,19 +249,17 @@ pub fn command(workspace: PathBuf, grant: bool, revoke: bool) -> Result<()> {
 fn show_project_config(project: &crate::config::Config) {
     println!(
         "  - default_provider: {} (ignored; user/CLI-owned)",
-        project
-            .default_provider
-            .clone()
-            .unwrap_or_else(|| "(unset)".into())
+        terminal_safe(project.default_provider.as_deref().unwrap_or("(unset)"))
     );
 
     println!("  - providers (custom entries / unset non-credential fields only):");
     for (name, provider) in &project.providers {
         println!(
-            "      {name}: base_url={} model={} api_key_env={} (ignored; user-owned)",
-            provider.base_url.as_deref().unwrap_or("(unset)"),
-            provider.model.as_deref().unwrap_or("(unset)"),
-            provider.api_key_env.as_deref().unwrap_or("(unset)")
+            "      {}: base_url={} model={} api_key_env={} (ignored; user-owned)",
+            terminal_safe(name),
+            terminal_safe(provider.base_url.as_deref().unwrap_or("(unset)")),
+            terminal_safe(provider.model.as_deref().unwrap_or("(unset)")),
+            terminal_safe(provider.api_key_env.as_deref().unwrap_or("(unset)"))
         );
     }
 
@@ -283,6 +282,12 @@ fn show_project_config(project: &crate::config::Config) {
     );
 }
 
+/// Sanitize and redact values from project files and persistent state before
+/// they are displayed in the user's terminal.
+fn terminal_safe(value: &str) -> String {
+    Redactor::default().redact(&sanitize_text(value))
+}
+
 fn fmt_opt<T: std::fmt::Display>(value: Option<T>) -> String {
     value
         .map(|value| value.to_string())
@@ -299,9 +304,9 @@ fn list_records(data_dir: &Path) -> Result<()> {
     for record in store.records() {
         println!(
             "  {} · {} · since {}",
-            record.workspace,
-            &record.config_sha256[..16],
-            record.trusted_at
+            terminal_safe(&record.workspace),
+            terminal_safe(record.config_sha256.get(..16).unwrap_or(&record.config_sha256)),
+            terminal_safe(&record.trusted_at)
         );
     }
     Ok(())
