@@ -1,6 +1,7 @@
 use std::io::Read;
 
 use keyring::Entry;
+use raven_core::redact::{sanitize_text, Redactor};
 use raven_core::{Error, Result};
 
 use crate::config::{Config, ResolvedProvider};
@@ -76,6 +77,7 @@ pub fn status(config: &Config) -> Result<()> {
     let providers = config.known_provider_names();
     println!("{:<12} {:<12} SOURCE", "PROVIDER", "CREDENTIAL");
     for provider in providers {
+        let provider_display = terminal_safe(&provider);
         let env_name = config
             .providers
             .get(&provider)
@@ -85,7 +87,10 @@ pub fn status(config: &Config) -> Result<()> {
             Ok(value) => !value.trim().is_empty(),
             Err(keyring::Error::NoEntry) => false,
             Err(error) => {
-                println!("{provider:<12} error        {error}");
+                println!(
+                    "{provider_display:<12} error        {}",
+                    terminal_safe(&error.to_string())
+                );
                 continue;
             }
         };
@@ -104,7 +109,7 @@ pub fn status(config: &Config) -> Result<()> {
         } else {
             ("missing", "run `raven auth set`")
         };
-        println!("{provider:<12} {credential:<12} {source}");
+        println!("{provider_display:<12} {credential:<12} {source}");
     }
     Ok(())
 }
@@ -149,6 +154,11 @@ fn entry(provider: &str) -> Result<Entry> {
 ///
 /// Parse the URL and inspect its host. Substring checks on the full URL would
 /// incorrectly treat remote hosts or paths containing "localhost" as local.
+
+fn terminal_safe(value: &str) -> String {
+    Redactor::default().redact(&sanitize_text(value))
+}
+
 pub fn is_local(base_url: &str) -> bool {
     let Ok(url) = url::Url::parse(base_url) else {
         return false;
