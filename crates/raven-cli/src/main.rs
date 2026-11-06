@@ -158,7 +158,10 @@ async fn main() -> ExitCode {
             ExitCode::from(130)
         }
         Err(error) => {
-            eprintln!("raven: {}", Redactor::default().redact(&sanitize_text(&error.to_string())));
+            eprintln!(
+                "raven: {}",
+                Redactor::default().redact(&sanitize_text(&error.to_string()))
+            );
             ExitCode::from(error.exit_code())
         }
     }
@@ -169,7 +172,10 @@ async fn dispatch(cli: Cli) -> Result<ExitCode> {
         Command::Run(args) => cmd_run(*args, cli.config).await,
         Command::Init { force } => {
             let path = config::init(cli.config, force)?;
-            println!("wrote {}", path.display());
+            println!(
+                "wrote {}",
+                Redactor::default().redact(&sanitize_text(&path.display().to_string()))
+            );
             Ok(ExitCode::SUCCESS)
         }
         Command::Auth { command } => {
@@ -333,7 +339,8 @@ async fn cmd_run(args: RunArgs, config_path: Option<PathBuf>) -> Result<ExitCode
         }));
     } else {
         let model_display = Redactor::default().redact(&sanitize_text(&resolved.model));
-        let workspace_display = Redactor::default().redact(&sanitize_text(&workspace.to_string_lossy()));
+        let workspace_display =
+            Redactor::default().redact(&sanitize_text(&workspace.to_string_lossy()));
         eprintln!(
             "{} · {} · {} · {}\n",
             store.session_id(),
