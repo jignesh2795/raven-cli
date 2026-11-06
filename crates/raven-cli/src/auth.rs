@@ -150,15 +150,14 @@ fn entry(provider: &str) -> Result<Entry> {
         .map_err(|error| Error::Config(format!("could not open credential store: {error}")))
 }
 
-/// Whether a provider URL explicitly targets a loopback endpoint.
-///
-/// Parse the URL and inspect its host. Substring checks on the full URL would
-/// incorrectly treat remote hosts or paths containing "localhost" as local.
-
 fn terminal_safe(value: &str) -> String {
     Redactor::default().redact(&sanitize_text(value))
 }
 
+/// Whether a provider URL explicitly targets a loopback endpoint.
+///
+/// Parse the URL and inspect its host. Substring checks on the full URL would
+/// incorrectly treat remote hosts or paths containing "localhost" as local.
 pub fn is_local(base_url: &str) -> bool {
     let Ok(url) = url::Url::parse(base_url) else {
         return false;
