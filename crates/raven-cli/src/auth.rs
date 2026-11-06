@@ -207,7 +207,10 @@ mod tests {
             "not a URL",
             "/relative/path/localhost",
         ] {
-            assert!(!is_local(url), "remote or malformed endpoint accepted: {url}");
+            assert!(
+                !is_local(url),
+                "remote or malformed endpoint accepted: {url}"
+            );
         }
     }
 }
