@@ -72,8 +72,11 @@ reports the actual backend and its limits.
    non-credential fields on a provider explicitly configured by the user. It
    cannot choose `default_provider`, replace a built-in provider preset, set
    `api_key_env`, override pricing, or change redaction. Credential source
-   selection remains user-owned. This is a process-level control: a malicious
-   process running as you can edit `trust.json`.
+   selection remains user-owned. A project-supplied `base_url` is a credential
+   destination: when you select that provider, Raven sends its resolved key to
+   that endpoint. Review provider URLs before granting trust. This is a
+   process-level control: a malicious process running as you can edit
+   `trust.json`.
 7. **Credential handling.** `raven auth set` stores keys in Windows Credential
    Manager (service `raven-cli`). Keys are not written to `raven.toml` or the
    event log.
