@@ -243,8 +243,7 @@ fields on a provider you explicitly configured. It cannot choose
 override pricing, or change redaction. Credential sources remain user-owned:
 `RAVEN_API_KEY`, the user-configured provider environment variable, or the
 provider's Windows Credential Manager entry. `raven doctor` reports whether a
-project file is being used.`raven doctor` reports
-whether a project file is being used.
+project file is being used.
 
 ## Sessions and audit
 

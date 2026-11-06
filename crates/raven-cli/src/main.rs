@@ -286,8 +286,8 @@ async fn cmd_run(args: RunArgs, config_path: Option<PathBuf>) -> Result<ExitCode
         let cassette = raven_provider::Cassette::load(path)?;
         Arc::new(raven_provider::CassetteProvider::new(cassette))
     } else {
-        // Replay uses only its cassette and must not require credentials or
-        // initialize a live provider.
+        // Only live-provider execution resolves credentials; cassette replay
+        // bypasses this branch entirely.
         let api_key = auth::resolve_key(&resolved, args.api_key_env.as_deref())?;
         let mut provider = OpenAiProvider::new(
             provider_name.clone(),
