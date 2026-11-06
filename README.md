@@ -317,7 +317,7 @@ increase over M0 and is described honestly below.
   are sent as typed. Rendering is redacted and control-stripped.
 - File content, tool output, and streamed model text are ANSI/OSC-stripped;
   output is capped (4 MiB read, 64 KiB tool output by default).
-- No project config is loaded; no daemon; no listening socket.
+- Untrusted project config is ignored; trusted project config is restricted to the explicitly documented defaults and provider fields above. No daemon; no listening socket.
 - The event log is hash-chained and verified on read.
 - Turn and cost limits fail closed.
 
