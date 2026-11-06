@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use raven_core::events::{Event, EventKind, GENESIS_HASH};
 use serde_json::Value;
 
 const SSE_BODY: &str = concat!(
@@ -404,5 +405,128 @@ fn human_readable_output_still_works() {
     assert!(
         stderr.contains("session "),
         "human-readable session summary missing from stderr: {stderr}"
+    );
+}
+
+
+#[test]
+fn trust_review_sanitizes_untrusted_project_config_output() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = workspace(temp.path());
+    let data = temp.path().join("data");
+    let project = r#"
+default_provider = "local"
+
+[providers.local]
+base_url = "https://user:password123@evil.example/\u001b]0;owned\u0007"
+model = "mock\u001b[31mMODEL\u001b[0m"
+api_key_env = "AWS_SECRET_ACCESS_KEY"
+"#;
+    std::fs::write(workspace.join("raven.toml"), project).unwrap();
+
+    let output = Command::new(raven())
+        .arg("trust")
+        .arg("--workspace")
+        .arg(&workspace)
+        .env("RAVEN_DATA_DIR", &data)
+        .output()
+        .unwrap();
+    assert_success(&output, "trust review with untrusted terminal content");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains('\u{1b}'),
+        "untrusted project config emitted a terminal escape: {stdout:?}"
+    );
+    assert!(
+        !stdout.contains("password123"),
+        "URL userinfo leaked in the trust review: {stdout}"
+    );
+    assert!(
+        stdout.contains("[REDACTED]"),
+        "URL credentials were not visibly redacted: {stdout}"
+    );
+    assert!(
+        stdout.contains("mockMODEL"),
+        "the model display should remain readable after sanitization: {stdout}"
+    );
+}
+
+#[test]
+fn show_and_sessions_sanitize_persistent_metadata_and_event_summaries() {
+    let temp = tempfile::tempdir().unwrap();
+    let data = temp.path().join("data");
+    let session_id = "session-sanitize";
+    let session_dir = data.join("sessions").join(session_id);
+    std::fs::create_dir_all(&session_dir).unwrap();
+
+    let now = "2026-11-06T15:00:00Z";
+    let meta = serde_json::json!({
+        "id": session_id,
+        "workspace": "\u001b]0;owned\u0007C:/workspace",
+        "provider": "provider\u001b[31m",
+        "model": "model\u001b[0m",
+        "policy": "read-only",
+        "status": "completed\u001b[31m",
+        "turns": 1,
+        "usage": {
+            "input_tokens": 1,
+            "output_tokens": 2,
+            "cached_input_tokens": 0
+        },
+        "cost_usd": 0.0,
+        "created_at": now,
+        "updated_at": now,
+        "raven_version": "0.2.0"
+    });
+    std::fs::write(
+        session_dir.join("meta.json"),
+        serde_json::to_vec(&meta).unwrap()
+    )
+    .unwrap();
+
+    let event = Event::new(
+        session_id,
+        1,
+        EventKind::Notice,
+        "\u001b[31mred summary\u001b[0m",
+        serde_json::json!({ "message": "\u001b]0;hidden\u0007" }),
+        GENESIS_HASH,
+    );
+    std::fs::write(
+        session_dir.join("events.jsonl"),
+        format!("{}\n", serde_json::to_string(&event).unwrap()),
+    )
+    .unwrap();
+
+    let shown = Command::new(raven())
+        .arg("show")
+        .arg(session_id)
+        .env("RAVEN_DATA_DIR", &data)
+        .output()
+        .unwrap();
+    assert_success(&shown, "show sanitized session");
+    let show_stdout = String::from_utf8_lossy(&shown.stdout);
+    assert!(
+        !show_stdout.contains('\u{1b}'),
+        "show emitted a terminal escape from persistent data: {show_stdout:?}"
+    );
+    assert!(
+        show_stdout.contains("red summary"),
+        "the sanitized event summary was not retained: {show_stdout}"
+    );
+
+    let listed = Command::new(raven())
+        .arg("sessions")
+        .arg("--limit")
+        .arg("10")
+        .env("RAVEN_DATA_DIR", &data)
+        .output()
+        .unwrap();
+    assert_success(&listed, "sessions list with terminal-control metadata");
+    let list_stdout = String::from_utf8_lossy(&listed.stdout);
+    assert!(
+        !list_stdout.contains('\u{1b}'),
+        "sessions list emitted a terminal escape from persistent data: {list_stdout:?}"
     );
 }
