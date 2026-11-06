@@ -84,7 +84,7 @@ impl Observer for ConsoleObserver {
     }
 
     fn on_tool_call(&self, name: &str, args: &Value) {
-        let name = sanitize_text(name);
+        let name = self.redactor.redact(&sanitize_text(name));
         let mut args = args.clone();
         self.redactor.redact_json(&mut args);
         let rendered = serde_json::to_string(&args).unwrap_or_else(|_| "{}".into());
