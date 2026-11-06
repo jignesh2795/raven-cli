@@ -69,7 +69,10 @@ pub fn set(provider: &str, read_stdin: bool) -> Result<()> {
     entry(provider)?
         .set_password(&key)
         .map_err(|error| Error::Config(format!("could not store API key: {error}")))?;
-    println!("stored key for {provider} in Windows Credential Manager");
+    println!(
+        "stored key for {} in Windows Credential Manager",
+        terminal_safe(provider)
+    );
     Ok(())
 }
 
@@ -116,8 +119,10 @@ pub fn status(config: &Config) -> Result<()> {
 
 pub fn delete(provider: &str) -> Result<()> {
     match entry(provider)?.delete_credential() {
-        Ok(()) => println!("deleted key for {provider}"),
-        Err(keyring::Error::NoEntry) => println!("no stored key for {provider}"),
+        Ok(()) => println!("deleted key for {}", terminal_safe(provider)),
+        Err(keyring::Error::NoEntry) => {
+            println!("no stored key for {}", terminal_safe(provider))
+        }
         Err(error) => return Err(Error::Config(format!("could not delete API key: {error}"))),
     }
     Ok(())
