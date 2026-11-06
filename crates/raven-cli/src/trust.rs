@@ -257,7 +257,7 @@ fn show_project_config(project: &crate::config::Config) {
         println!(
             "      {}: base_url={} model={} api_key_env={} (ignored; user-owned)",
             terminal_safe(name),
-            terminal_safe(provider.base_url.as_deref().unwrap_or("(unset)")),
+            terminal_safe_endpoint(provider.base_url.as_deref().unwrap_or("(unset)")),
             terminal_safe(provider.model.as_deref().unwrap_or("(unset)")),
             terminal_safe(provider.api_key_env.as_deref().unwrap_or("(unset)"))
         );
@@ -286,6 +286,20 @@ fn show_project_config(project: &crate::config::Config) {
 /// they are displayed in the user's terminal.
 fn terminal_safe(value: &str) -> String {
     Redactor::default().redact(&sanitize_text(value))
+}
+
+/// Display a provider endpoint without URL userinfo, query parameters, or
+/// fragments. These parts commonly carry credentials or access tokens.
+fn terminal_safe_endpoint(value: &str) -> String {
+    let sanitized = sanitize_text(value);
+    let Ok(mut url) = url::Url::parse(&sanitized) else {
+        return terminal_safe(&sanitized);
+    };
+    let _ = url.set_username("");
+    let _ = url.set_password(None);
+    url.set_query(None);
+    url.set_fragment(None);
+    terminal_safe(url.as_str())
 }
 
 fn fmt_opt<T: std::fmt::Display>(value: Option<T>) -> String {
