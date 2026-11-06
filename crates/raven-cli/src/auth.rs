@@ -175,12 +175,16 @@ mod tests {
             "http://localhost:11434/v1",
             "https://LOCALHOST/v1",
             "http://127.0.0.1:8080/v1",
+            "http://127.255.255.254:8080/v1",
             "http://[::1]:8080/v1",
         ] {
             assert!(is_local(url), "expected local endpoint: {url}");
         }
 
         for url in [
+            "ftp://localhost:21/resource",
+            "file:///tmp/localhost",
+            "http://[::]:8080/v1",
             "https://localhost.attacker.example/v1",
             "https://127.0.0.1.attacker.example/v1",
             "https://attacker.example/localhost",
