@@ -273,7 +273,10 @@ fn show_project_config(project: &crate::config::Config) {
     println!("  - output_cap: {}", fmt_opt(project.output_cap));
     println!("  - temperature: {}", fmt_opt(project.temperature));
     println!("  - max_tokens: {}", fmt_opt(project.max_tokens));
-    println!("  - pricing: {} project entries ignored (user-owned)", project.pricing.len());
+    println!(
+        "  - pricing: {} project entries ignored (user-owned)",
+        project.pricing.len()
+    );
     println!(
         "  - redact: {} (project value ignored; user-owned setting only)",
         fmt_opt(project.redact)

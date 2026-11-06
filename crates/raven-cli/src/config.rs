@@ -585,12 +585,17 @@ cached_input_per_mtok = 0.0
         assert_eq!(openai.model, "gpt-4.1");
         assert_eq!(openai.api_key_env.as_deref(), Some("USER_OPENAI_API_KEY"));
 
-        let local = config.resolve_provider("local", None, None, None).unwrap();
+        let local = config
+            .resolve_provider("local", None, None, None)
+            .unwrap();
         assert_eq!(local.base_url, "http://127.0.0.1:8780/v1");
         assert_eq!(local.model, "local-model");
         assert_eq!(local.api_key_env, None, "project credentials must be ignored");
 
-        let pricing = config.pricing.get("user-model").unwrap();
+        let pricing = config
+            .pricing
+            .get("user-model")
+            .unwrap();
         assert_eq!(pricing.input_per_mtok, 5.0);
         assert_eq!(pricing.output_per_mtok, 7.0);
         assert_eq!(pricing.cached_input_per_mtok, 1.0);
