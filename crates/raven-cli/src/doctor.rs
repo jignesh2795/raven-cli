@@ -25,7 +25,10 @@ pub fn run(config_path: Option<PathBuf>) -> Result<()> {
         if path.exists() { "found" } else { "not found" }
     );
     println!("data:      {}", terminal_safe(&data.display().to_string()));
-    println!("workspace: {}", terminal_safe(&workspace.display().to_string()));
+    println!(
+        "workspace: {}",
+        terminal_safe(&workspace.display().to_string())
+    );
     println!(
         "policy:    {} (edits require approval unless --yes)",
         config.effective_policy().label()
@@ -96,12 +99,17 @@ pub fn run(config_path: Option<PathBuf>) -> Result<()> {
 fn describe(result: &raven_sandbox::ProbeResult) -> String {
     match result {
         raven_sandbox::ProbeResult::Available => "available".into(),
-        raven_sandbox::ProbeResult::Unavailable(reason) => format!("unavailable: {}", terminal_safe(reason)),
-        raven_sandbox::ProbeResult::Unknown(reason) => format!("unknown: {}", terminal_safe(reason)),
-        raven_sandbox::ProbeResult::Planned(reason) => format!("planned: {}", terminal_safe(reason)),
+        raven_sandbox::ProbeResult::Unavailable(reason) => {
+            format!("unavailable: {}", terminal_safe(reason))
+        }
+        raven_sandbox::ProbeResult::Unknown(reason) => {
+            format!("unknown: {}", terminal_safe(reason))
+        }
+        raven_sandbox::ProbeResult::Planned(reason) => {
+            format!("planned: {}", terminal_safe(reason))
+        }
     }
 }
-
 
 fn terminal_safe(input: &str) -> String {
     Redactor::default().redact(&sanitize_text(input))
