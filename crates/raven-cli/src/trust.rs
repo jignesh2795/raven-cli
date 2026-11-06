@@ -47,7 +47,10 @@ impl TrustStore {
         }
         let text = std::fs::read_to_string(&path)?;
         let records: Vec<TrustRecord> = serde_json::from_str(&text).map_err(|error| {
-            Error::Config(format!("invalid trust store '{}': {error}", terminal_safe(&path.display().to_string())))
+            Error::Config(format!(
+                "invalid trust store '{}': {error}",
+                terminal_safe(&path.display().to_string())
+            ))
         })?;
         Ok(Self { records })
     }
@@ -191,7 +194,10 @@ pub fn command(workspace: PathBuf, grant: bool, revoke: bool) -> Result<()> {
 
     let path = project_config_path(&workspace);
     if !path.exists() {
-        println!("no project-local raven.toml at {}", terminal_safe(&path.display().to_string()));
+        println!(
+            "no project-local raven.toml at {}",
+            terminal_safe(&path.display().to_string())
+        );
         list_records(&data_dir)?;
         return Ok(());
     }
@@ -216,7 +222,10 @@ pub fn command(workspace: PathBuf, grant: bool, revoke: bool) -> Result<()> {
     if !grant {
         // Neither grant nor revoke: report the current state and stop. Never
         // prompt for a trust decision the user did not ask for.
-        println!("{} is NOT trusted", terminal_safe(&workspace.display().to_string()));
+        println!(
+            "{} is NOT trusted",
+            terminal_safe(&workspace.display().to_string())
+        );
         println!("  project-local raven.toml is being ignored. It would change:");
         show_project_config(&project);
         println!("\n  run `raven trust --grant` to review and trust it");
@@ -329,7 +338,12 @@ fn list_records(data_dir: &Path) -> Result<()> {
         println!(
             "  {} · {} · since {}",
             terminal_safe(&record.workspace),
-            terminal_safe(record.config_sha256.get(..16).unwrap_or(&record.config_sha256)),
+            terminal_safe(
+                record
+                    .config_sha256
+                    .get(..16)
+                    .unwrap_or(&record.config_sha256)
+            ),
             terminal_safe(&record.trusted_at)
         );
     }
