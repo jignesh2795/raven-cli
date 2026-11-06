@@ -1,9 +1,10 @@
 //! Workspace trust gate.
 //!
-//! A project-local `raven.toml` can choose the endpoint your code is sent to and
-//! which environment variable holds the key. A cloned repository must not be
-//! able to do that silently, so project config is **ignored until the workspace
-//! is explicitly trusted**.
+//! A project-local `raven.toml` may provide custom-provider endpoints and
+//! non-credential defaults. It cannot select the default provider, choose the
+//! credential environment variable, change pricing, or disable redaction. A
+//! cloned repository's config is ignored until the workspace is explicitly
+//! trusted.
 //!
 //! Trust is stored per canonical workspace path and pinned to the SHA-256 of
 //! the exact `raven.toml` bytes that were reviewed. Editing the project file
@@ -246,17 +247,17 @@ pub fn command(workspace: PathBuf, grant: bool, revoke: bool) -> Result<()> {
 
 fn show_project_config(project: &crate::config::Config) {
     println!(
-        "  - default_provider: {}",
+        "  - default_provider: {} (ignored; user/CLI-owned)",
         project
             .default_provider
             .clone()
             .unwrap_or_else(|| "(unset)".into())
     );
 
-    println!("  - providers:");
+    println!("  - providers (custom entries / unset non-credential fields only):");
     for (name, provider) in &project.providers {
         println!(
-            "      {name}: base_url={} model={} api_key_env={}",
+            "      {name}: base_url={} model={} api_key_env={} (ignored; user-owned)",
             provider.base_url.as_deref().unwrap_or("(unset)"),
             provider.model.as_deref().unwrap_or("(unset)"),
             provider.api_key_env.as_deref().unwrap_or("(unset)")
@@ -272,7 +273,14 @@ fn show_project_config(project: &crate::config::Config) {
     println!("  - output_cap: {}", fmt_opt(project.output_cap));
     println!("  - temperature: {}", fmt_opt(project.temperature));
     println!("  - max_tokens: {}", fmt_opt(project.max_tokens));
-    println!("  - redact: {}", fmt_opt(project.redact));
+    println!(
+        "  - pricing: {} project entries ignored (user-owned)",
+        project.pricing.len()
+    );
+    println!(
+        "  - redact: {} (project value ignored; user-owned setting only)",
+        fmt_opt(project.redact)
+    );
 }
 
 fn fmt_opt<T: std::fmt::Display>(value: Option<T>) -> String {

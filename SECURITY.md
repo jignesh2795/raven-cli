@@ -41,17 +41,18 @@ reports the actual backend and its limits.
 1. **Writes are human-authorized.** No file change happens without a decision at
    the approval prompt (or an explicit `--yes`). A non-interactive run without
    `--yes` applies nothing and reports the denial instead. The CLI's approver is
-   always installed; the agent's built-in default is `DenyAll`, so a missing
-   wiring denies rather than writes silently.
+   always installed; the agent's built-in default is `DenyAll`, so missing
+   approval wiring denies rather than writing silently.
 2. **No execution capabilities.** `edit_file` and `create_file` are the only
    write tools. The policy rejects execute and network tool kinds. The agent loop
    starts no child processes; `doctor` runs only `git --version`.
-3. **Atomic, verified writes.** Each edit is written to a temporary file, synced,
-   verified byte-for-byte, then swapped in with `ReplaceFileW` (existing target)
-   or `MoveFileExW` with `MOVEFILE_WRITE_THROUGH` (new target). There is no
-   delete-then-rename fallback: if the swap cannot be atomic, it fails and the
-   original is untouched. The pre-image hash is re-checked between approval and
-   the swap, and the result is re-read and hash-compared afterwards.
+3. **Atomic, verified writes.** Each write is prepared in a temporary file,
+   synced, and verified byte-for-byte before it is persisted. Existing-file
+   edits use `ReplaceFileW` on Windows or atomic rename on Unix. New-file
+   creation uses `MoveFileExW` without `REPLACE_EXISTING` on Windows or an
+   atomic no-clobber hard link on Unix. There is no delete-then-rename fallback.
+   The edit pre-image is re-checked before replacement, and the result is
+   re-read and hash-compared afterwards.
 4. **Exact edits only.** `edit_file` replaces exact text that must occur exactly
    once unless `replace_all` is set; there are no line-number patches and no
    whole-file rewrites. The UTF-8 BOM and the file's dominant line-ending style
@@ -59,46 +60,49 @@ reports the actual backend and its limits.
 5. **Workspace confinement on writes.** Write paths resolve the parent through
    canonicalization (so symlinks and junctions are followed and checked), reject
    protected names, and normalize `.env::$DATA`, trailing-dot, and trailing-space
-   bypasses. Reserved Windows device names and alternate-data-stream colons are
-   refused.
-6. **Audit of every change.** Each applied edit appends an `edit_applied` event
-   carrying the path, before/after SHA-256 hashes, added/removed counts, and the
-   redacted diff.
-2. **Workspace confinement.** Tool paths are canonicalized and confined to the
-   workspace root. Traversal, device paths, named pipes, `.git` components, and
-   secret-bearing filenames (`.env*`, private keys, `.npmrc`, `.pypirc`,
-   credential stores) are denied.
-3. **Project config needs explicit trust.** A project-local `raven.toml` is
+   bypasses. Reserved Windows device names, alternate-data-stream colons,
+   traversal, device paths, named pipes, `.git` components, and secret-bearing
+   filenames (`.env*`, private keys, `.npmrc`, `.pypirc`, credential stores)
+   are denied.
+6. **Project config needs explicit trust.** A project-local `raven.toml` is
    ignored until you run `raven trust --grant` for that workspace. Trust is
-   pinned to the SHA-256 of the exact file you reviewed, so editing the file
-   invalidates it. Granting requires a terminal and fails closed otherwise. A
-   trusted project file may fill in settings you left unset but never overrides
-   your own config, and it cannot change which environment variable or keyring
-   entry supplies the key. `raven doctor` reports whether a project file is in
-   use and the session log records the decision. This is a process-level
-   control: a malicious process running as you can edit `trust.json`.
-4. **Credential handling.** `raven auth set` stores keys in Windows Credential
+   pinned to the SHA-256 of the exact file you reviewed, so editing the project
+   file invalidates it. Granting requires a terminal and fails closed otherwise.
+   A trusted project file may add a custom provider or fill unset
+   non-credential fields on a provider explicitly configured by the user. It
+   cannot choose `default_provider`, replace a built-in provider preset, set
+   `api_key_env`, override pricing, or change redaction. Credential source
+   selection remains user-owned. A project-supplied `base_url` is a credential
+   destination: when you select that provider, Raven sends its resolved key to
+   that endpoint. Review provider URLs before granting trust. This is a
+   process-level control: a malicious process running as you can edit
+   `trust.json`.
+7. **Credential handling.** `raven auth set` stores keys in Windows Credential
    Manager (service `raven-cli`). Keys are not written to `raven.toml` or the
    event log.
-5. **Redaction before egress and persistence.** Common API keys, JWTs, bearer
+8. **Redaction before egress and persistence.** Common API keys, JWTs, bearer
    tokens, private keys, and URL credentials are redacted before tool results
    are sent to the provider, written to the event log, rendered, or shown in an
-   approval diff. This is pattern-based and best-effort. `redact = false` turns
-   this off entirely; it is a debugging escape hatch, not a supported
-   production setting.
-6. **Terminal safety.** ANSI CSI/OSC and other control characters are stripped
+   approval diff. This is pattern-based and best-effort. A user-owned
+   `redact = false` setting turns this off entirely; it is a debugging escape
+   hatch, not a supported production setting. Project-local config cannot
+   disable redaction.
+9. **Terminal safety.** ANSI CSI/OSC and other control characters are stripped
    from file content, tool output, and streamed model text before it reaches the
    terminal or JSON output.
-7. **Output limits.** Reads are capped at 4 MiB; tool output defaults to 64 KiB;
-   directory listings cap at 1000 entries; search caps at 500 results. Files
-   with NUL bytes are rejected as binary.
-8. **Tamper-evident audit.** Each session event is SHA-256 hash-chained; `show`
-   verifies sequence, links, and hashes. The log is tamper-evident, not
-   tamper-proof.
-9. **Fail-closed limits.** Turn limits stop the loop, and cost limits stop the
-   session after the response that pushes the total over the cap. `--max-cost`
-   refuses to run without a matching pricing entry instead of guessing.
-10. **No daemon.** The CLI opens no listening socket. Provider traffic is the
+10. **Output limits.** Reads are capped at 4 MiB; tool output defaults to 64 KiB;
+    directory listings cap at 1000 entries; search caps at 500 results. Files
+    with NUL bytes are rejected as binary.
+11. **Audit of every change.** Each applied edit or create appends an
+    `edit_applied` event carrying the path, before/after SHA-256 hashes,
+    added/removed counts, and the redacted diff.
+12. **Tamper-evident audit.** Each session event is SHA-256 hash-chained;
+    `show` verifies sequence, links, and hashes. The log is tamper-evident, not
+    tamper-proof.
+13. **Fail-closed limits.** Turn limits stop the loop, and cost limits stop the
+    session after the response that pushes the total over the cap. `--max-cost`
+    refuses to run without a matching pricing entry instead of guessing.
+14. **No daemon.** The CLI opens no listening socket. Provider traffic is the
     only outbound network path.
 
 ## M1 non-guarantees (explicitly not claimed)

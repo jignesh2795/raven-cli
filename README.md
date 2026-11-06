@@ -236,10 +236,16 @@ raven trust --revoke        # stop honoring it
 Trust is stored per workspace and pinned to the SHA-256 of the exact file you
 reviewed, so editing `raven.toml` invalidates trust and the file is ignored
 again until you re-trust it. Granting requires a terminal; a non-interactive run
-fails closed. A trusted project file can fill in settings you have not set —
-model, endpoint, `max_turns`, `policy` — but can never override your own config,
-and it cannot change where your API key comes from. `raven doctor` reports
-whether a project file is being used.
+fails closed. A trusted project file can supply safe defaults such as
+`max_turns` and `policy`, add a custom provider, or fill unset non-credential
+fields on a provider you explicitly configured. It cannot choose
+`default_provider`, replace a built-in provider preset, set `api_key_env`,
+override pricing, or change redaction. Credential sources remain user-owned:
+`RAVEN_API_KEY`, the user-configured provider environment variable, or the
+provider's Windows Credential Manager entry. A project-supplied
+`base_url` is a credential destination: when you select that provider, Raven
+sends its resolved key to that endpoint. Review provider URLs before granting
+trust. `raven doctor` reports whether a project file is being used.
 
 ## Sessions and audit
 
@@ -311,7 +317,7 @@ increase over M0 and is described honestly below.
   are sent as typed. Rendering is redacted and control-stripped.
 - File content, tool output, and streamed model text are ANSI/OSC-stripped;
   output is capped (4 MiB read, 64 KiB tool output by default).
-- No project config is loaded; no daemon; no listening socket.
+- Untrusted project config is ignored; trusted project config is restricted to the explicitly documented defaults and provider fields above. No daemon; no listening socket.
 - The event log is hash-chained and verified on read.
 - Turn and cost limits fail closed.
 

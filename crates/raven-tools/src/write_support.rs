@@ -112,6 +112,44 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// Create a new file without replacing a target that appeared after approval.
+/// The temporary file is removed by the guard after a successful link/move.
+pub fn atomic_create(path: &Path, bytes: &[u8]) -> Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| Error::Tool("path has no parent directory".into()))?;
+    let temp = parent.join(format!(".raven-tmp-{}", uuid::Uuid::new_v4().simple()));
+    let guard = TempFile::new(temp.clone());
+
+    {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+    }
+
+    let written = fs::read(&temp)?;
+    if written.as_slice() != bytes {
+        return Err(Error::Tool(
+            "temporary file verification failed; the target was not created".into(),
+        ));
+    }
+
+    raven_sandbox::atomic::persist_create_only(&temp, path).map_err(|error| {
+        Error::Tool(format!(
+            "could not create '{}' atomically without replacing an existing file: {error}",
+            path.display()
+        ))
+    })?;
+
+    // Keep the guard armed: on Unix the no-clobber hard link leaves the temp
+    // name in place; on Windows MoveFileExW has already moved it.
+    drop(guard);
+    Ok(())
+}
+
 /// Remove the temporary file unless the swap succeeded.
 struct TempFile {
     path: PathBuf,
@@ -168,4 +206,67 @@ pub fn line_number(text: &str, offset: usize) -> usize {
         .filter(|byte| **byte == b'\n')
         .count()
         + 1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn temp_files(dir: &Path) -> Vec<String> {
+        fs::read_dir(dir)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with(".raven-tmp-"))
+            .collect()
+    }
+
+    #[test]
+    fn atomic_create_creates_a_new_file_and_cleans_up_the_temp_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("created.txt");
+
+        atomic_create(&target, b"fresh").unwrap();
+
+        assert_eq!(fs::read(&target).unwrap(), b"fresh");
+        assert!(
+            temp_files(temp.path()).is_empty(),
+            "temporary files were left behind"
+        );
+    }
+
+    #[test]
+    fn atomic_create_refuses_an_existing_target_and_preserves_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("exists.txt");
+        fs::write(&target, b"original").unwrap();
+
+        let error = atomic_create(&target, b"model contents").unwrap_err();
+
+        assert!(
+            error.to_string().contains("could not create"),
+            "unexpected error: {error}"
+        );
+        assert_eq!(fs::read(&target).unwrap(), b"original");
+        assert!(
+            temp_files(temp.path()).is_empty(),
+            "temporary files were left behind after a failed create"
+        );
+    }
+
+    #[test]
+    fn atomic_write_still_replaces_an_existing_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("exists.txt");
+        fs::write(&target, b"old").unwrap();
+
+        atomic_write(&target, b"new").unwrap();
+
+        assert_eq!(fs::read(&target).unwrap(), b"new");
+        assert!(
+            temp_files(temp.path()).is_empty(),
+            "temporary files were left behind"
+        );
+    }
 }

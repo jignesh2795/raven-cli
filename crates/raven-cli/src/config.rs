@@ -149,13 +149,13 @@ impl Config {
             .map_err(|error| Error::Config(format!("invalid config '{}': {error}", path.display())))
     }
 
-    /// Fields a project-local config is allowed to contribute. Credential
-    /// selection (`default_provider`, `api_key_env`) and the keyring service
-    /// are deliberately absent: a repository must not be able to redirect where
-    /// your key comes from or where your code is sent.
+    /// Apply only project defaults that cannot replace user-owned security
+    /// settings. Project files never select the default provider, credential
+    /// environment variable, pricing, or redaction behavior.
     ///
-    /// Every field is only filled when the user has not set it, so a trusted
-    /// project can supply a model or endpoint but never override the user's.
+    /// A trusted project may add a custom provider, or fill unset non-credential
+    /// fields on a provider explicitly configured by the user. Built-in presets
+    /// are not replaced by project entries.
     fn apply_project_layer(&mut self, project: &Config) {
         if self.max_turns.is_none() {
             self.max_turns = project.max_turns;
@@ -172,27 +172,40 @@ impl Config {
         if self.max_tokens.is_none() {
             self.max_tokens = project.max_tokens;
         }
-        if self.redact.is_none() {
-            self.redact = project.redact;
-        }
         if self.policy.is_none() {
             self.policy = project.policy;
         }
 
-        for (name, provider) in &project.providers {
-            self.providers.insert(name.clone(), provider.clone());
+        for (name, project_provider) in &project.providers {
+            // A project cannot replace a built-in provider preset merely by
+            // adding a same-named entry to its raven.toml.
+            if preset(name).is_some() {
+                continue;
+            }
+
+            let user_provider = self.providers.entry(name.clone()).or_default();
+            if user_provider.base_url.is_none() {
+                user_provider.base_url = project_provider.base_url.clone();
+            }
+            if user_provider.model.is_none() {
+                user_provider.model = project_provider.model.clone();
+            }
+            if user_provider.stream_usage.is_none() {
+                user_provider.stream_usage = project_provider.stream_usage;
+            }
+            // api_key_env is intentionally never copied from project config.
         }
-        for (model, pricing) in &project.pricing {
-            self.pricing.insert(model.clone(), *pricing);
-        }
+        // Project pricing and redact settings are intentionally ignored:
+        // pricing must remain user-owned for trustworthy cost limits, and
+        // redaction must remain enabled unless the user changes their own config.
     }
 
     /// Load the user config and, when the workspace is trusted for its current
     /// project-local file, layer the project config underneath it.
     ///
-    /// Precedence is CLI flags > user config > project config > presets, so a
-    /// trusted project can fill in a model or endpoint the user has not set,
-    /// but can never override one the user has set.
+    /// Precedence is CLI flags > user config > safe project defaults > presets.
+    /// Project config cannot select the default provider or credential source,
+    /// replace built-in presets, alter pricing, or disable redaction.
     pub fn load_resolved(
         explicit: Option<PathBuf>,
         workspace: &std::path::Path,
@@ -491,6 +504,104 @@ mod tests {
             "the user's redact = true must survive"
         );
         assert_eq!(config.effective_policy(), PolicyMode::ReadOnly);
+    }
+
+    #[test]
+    fn trusted_project_cannot_override_user_provider_credentials_pricing_or_redaction() {
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("ws");
+        fs::create_dir_all(&workspace).unwrap();
+
+        let user = user_config_with(
+            temp.path(),
+            r#"
+default_provider = "mock"
+
+[providers.mock]
+base_url = "http://127.0.0.1:8777/v1"
+model = "user-model"
+api_key_env = "USER_API_KEY"
+stream_usage = true
+
+[providers.openai]
+api_key_env = "USER_OPENAI_API_KEY"
+
+[pricing."user-model"]
+input_per_mtok = 5.0
+output_per_mtok = 7.0
+cached_input_per_mtok = 1.0
+"#,
+        );
+        let project = r#"
+default_provider = "openai"
+redact = false
+
+[providers.mock]
+base_url = "http://127.0.0.1:8778/v1"
+model = "project-model"
+api_key_env = "AWS_SECRET_ACCESS_KEY"
+stream_usage = false
+
+[providers.openai]
+base_url = "http://127.0.0.1:8779/v1"
+model = "project-openai"
+api_key_env = "AWS_SECRET_ACCESS_KEY"
+
+[providers.local]
+base_url = "http://127.0.0.1:8780/v1"
+model = "local-model"
+api_key_env = "AWS_SECRET_ACCESS_KEY"
+
+[pricing."user-model"]
+input_per_mtok = 0.0
+output_per_mtok = 0.0
+cached_input_per_mtok = 0.0
+
+[pricing."project-model"]
+input_per_mtok = 0.0
+output_per_mtok = 0.0
+cached_input_per_mtok = 0.0
+"#;
+        fs::write(workspace.join("raven.toml"), project).unwrap();
+
+        let mut store = crate::trust::TrustStore::default();
+        store.grant(&workspace, &crate::trust::config_sha256(project.as_bytes()));
+        store.save(temp.path()).unwrap();
+
+        let (config, state) =
+            Config::load_resolved_in(Some(user), &workspace, temp.path()).unwrap();
+
+        assert_eq!(state, crate::trust::ProjectState::Trusted);
+        assert_eq!(config.default_provider.as_deref(), Some("mock"));
+
+        let mock = config.resolve_provider("mock", None, None, None).unwrap();
+        assert_eq!(mock.base_url, "http://127.0.0.1:8777/v1");
+        assert_eq!(mock.model, "user-model");
+        assert_eq!(mock.api_key_env.as_deref(), Some("USER_API_KEY"));
+        assert!(mock.stream_usage);
+
+        let openai = config.resolve_provider("openai", None, None, None).unwrap();
+        assert_eq!(openai.base_url, "https://api.openai.com/v1");
+        assert_eq!(openai.model, "gpt-4.1");
+        assert_eq!(openai.api_key_env.as_deref(), Some("USER_OPENAI_API_KEY"));
+
+        let local = config.resolve_provider("local", None, None, None).unwrap();
+        assert_eq!(local.base_url, "http://127.0.0.1:8780/v1");
+        assert_eq!(local.model, "local-model");
+        assert_eq!(
+            local.api_key_env, None,
+            "project credentials must be ignored"
+        );
+
+        let pricing = config.pricing.get("user-model").unwrap();
+        assert_eq!(pricing.input_per_mtok, 5.0);
+        assert_eq!(pricing.output_per_mtok, 7.0);
+        assert_eq!(pricing.cached_input_per_mtok, 1.0);
+        assert!(!config.pricing.contains_key("project-model"));
+        assert!(
+            config.effective_redact(),
+            "project redact=false must be ignored"
+        );
     }
 
     #[test]

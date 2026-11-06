@@ -94,7 +94,7 @@ impl Tool for CreateFileTool {
             )));
         }
 
-        write_support::atomic_write(&path, bytes)?;
+        write_support::atomic_create(&path, bytes)?;
 
         let after = std::fs::read(&path)?;
         if write_support::sha256_hex(&after) != after_sha {
@@ -135,8 +135,22 @@ mod tests {
     use super::*;
     use raven_core::policy::PathPolicy;
     use raven_core::redact::Redactor;
-    use raven_core::tool::{ApproveAll, Approver, DenyAll};
+    use raven_core::tool::{ApprovalRequest, ApproveAll, Approver, Decision, DenyAll};
+    use std::path::PathBuf;
     use std::sync::Arc;
+
+    struct CreateTargetDuringApproval {
+        target: PathBuf,
+        contents: &'static str,
+    }
+
+    #[async_trait::async_trait]
+    impl Approver for CreateTargetDuringApproval {
+        async fn approve(&self, _request: ApprovalRequest) -> Decision {
+            std::fs::write(&self.target, self.contents).unwrap();
+            Decision::Approved
+        }
+    }
 
     fn context(root: &std::path::Path, approver: Arc<dyn Approver>) -> ToolContext {
         ToolContext {
@@ -214,5 +228,41 @@ mod tests {
 
         assert!(error.to_string().contains("not applied"));
         assert!(!temp.path().join("new.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn a_target_appearing_during_approval_is_preserved() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("raced.txt");
+        let approver = Arc::new(CreateTargetDuringApproval {
+            target: target.clone(),
+            contents: "created during approval\n",
+        });
+
+        let error = CreateFileTool
+            .call(
+                json!({ "path": "raced.txt", "content": "model contents\n" }),
+                &context(temp.path(), approver),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("appeared while the create was being approved"),
+            "unexpected error: {error}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "created during approval\n"
+        );
+        let leftovers: Vec<String> = std::fs::read_dir(temp.path())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with(".raven-tmp-"))
+            .collect();
+        assert!(leftovers.is_empty(), "temporary files were left behind");
     }
 }
