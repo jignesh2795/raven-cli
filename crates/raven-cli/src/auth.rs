@@ -145,10 +145,52 @@ fn entry(provider: &str) -> Result<Entry> {
         .map_err(|error| Error::Config(format!("could not open credential store: {error}")))
 }
 
+/// Whether a provider URL explicitly targets a loopback endpoint.
+///
+/// Parse the URL and inspect its host. Substring checks on the full URL would
+/// incorrectly treat remote hosts or paths containing "localhost" as local.
 pub fn is_local(base_url: &str) -> bool {
-    let lower = base_url.to_ascii_lowercase();
-    lower.contains("localhost")
-        || lower.contains("127.0.0.1")
-        || lower.contains("[::1]")
-        || lower.contains("0.0.0.0")
+    let Ok(url) = url::Url::parse(base_url) else {
+        return false;
+    };
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+
+    host.parse::<std::net::IpAddr>()
+        .map(|address| address.is_loopback())
+        .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_local;
+
+    #[test]
+    fn recognizes_only_exact_loopback_hosts() {
+        for url in [
+            "http://localhost:11434/v1",
+            "https://LOCALHOST/v1",
+            "http://127.0.0.1:8080/v1",
+            "http://[::1]:8080/v1",
+        ] {
+            assert!(is_local(url), "expected local endpoint: {url}");
+        }
+
+        for url in [
+            "https://localhost.attacker.example/v1",
+            "https://127.0.0.1.attacker.example/v1",
+            "https://attacker.example/localhost",
+            "https://attacker.example/?next=127.0.0.1",
+            "http://0.0.0.0:8080/v1",
+            "not a URL",
+            "/relative/path/localhost",
+        ] {
+            assert!(!is_local(url), "remote or malformed endpoint accepted: {url}");
+        }
+    }
 }
