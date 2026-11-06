@@ -153,17 +153,16 @@ pub fn is_local(base_url: &str) -> bool {
     let Ok(url) = url::Url::parse(base_url) else {
         return false;
     };
-    let Some(host) = url.host_str() else {
+    if !matches!(url.scheme(), "http" | "https") {
         return false;
-    };
-
-    if host.eq_ignore_ascii_case("localhost") {
-        return true;
     }
 
-    host.parse::<std::net::IpAddr>()
-        .map(|address| address.is_loopback())
-        .unwrap_or(false)
+    match url.host() {
+        Some(url::Host::Domain(host)) => host.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(address)) => address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => address.is_loopback(),
+        None => false,
+    }
 }
 
 #[cfg(test)]
