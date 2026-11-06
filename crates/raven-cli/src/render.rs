@@ -84,6 +84,7 @@ impl Observer for ConsoleObserver {
     }
 
     fn on_tool_call(&self, name: &str, args: &Value) {
+        let name = sanitize_text(name);
         let mut args = args.clone();
         self.redactor.redact_json(&mut args);
         let rendered = serde_json::to_string(&args).unwrap_or_else(|_| "{}".into());
@@ -104,7 +105,8 @@ impl Observer for ConsoleObserver {
     }
 
     fn on_tool_result(&self, name: &str, ok: bool, summary: &str) {
-        let summary = self.redactor.redact(summary);
+        let name = sanitize_text(name);
+        let summary = self.redactor.redact(&sanitize_text(summary));
         if self.json {
             emit(json!({
                 "v": 1,
@@ -126,6 +128,7 @@ impl Observer for ConsoleObserver {
     }
 
     fn on_notice(&self, message: &str) {
+        let message = self.redactor.redact(&sanitize_text(message));
         if self.json {
             emit(json!({ "v": 1, "type": "notice", "message": message }));
             return;
