@@ -112,6 +112,44 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// Create a new file without replacing a target that appeared after approval.
+/// The temporary file is removed by the guard after a successful link/move.
+pub fn atomic_create(path: &Path, bytes: &[u8]) -> Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| Error::Tool("path has no parent directory".into()))?;
+    let temp = parent.join(format!(".raven-tmp-{}", uuid::Uuid::new_v4().simple()));
+    let guard = TempFile::new(temp.clone());
+
+    {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+    }
+
+    let written = fs::read(&temp)?;
+    if written.as_slice() != bytes {
+        return Err(Error::Tool(
+            "temporary file verification failed; the target was not created".into(),
+        ));
+    }
+
+    raven_sandbox::atomic::persist_create_only(&temp, path).map_err(|error| {
+        Error::Tool(format!(
+            "could not create '{}' atomically without replacing an existing file: {error}",
+            path.display()
+        ))
+    })?;
+
+    // Keep the guard armed: on Unix the no-clobber hard link leaves the temp
+    // name in place; on Windows MoveFileExW has already moved it.
+    drop(guard);
+    Ok(())
+}
+
 /// Remove the temporary file unless the swap succeeded.
 struct TempFile {
     path: PathBuf,

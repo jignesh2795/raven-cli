@@ -1,10 +1,9 @@
-//! Atomic file replacement.
+//! Atomic file replacement and no-clobber creation.
 //!
 //! A file edit must never leave a truncated or partially written file behind.
-//! The replacement is written to a temporary file in the same directory and
-//! then swapped in with `ReplaceFileW` (existing target) or `MoveFileExW` with
-//! `MOVEFILE_WRITE_THROUGH` (new target). Both calls are transactional at the
-//! filesystem level: they either complete or leave the original untouched.
+//! Replacement uses `ReplaceFileW` on Windows or atomic rename on Unix.
+//! Creation uses a separate no-clobber primitive: `MoveFileExW` without
+//! `REPLACE_EXISTING` on Windows, and an atomic hard-link creation on Unix.
 //!
 //! This module is the only place in the workspace allowed to use `unsafe`. The
 //! calls below are security-critical and live next to the future containment
@@ -23,6 +22,12 @@ use std::path::Path;
 /// falling back to delete-then-rename, which could lose the original content.
 pub fn persist(replacement: &Path, target: &Path) -> io::Result<()> {
     imp::persist(replacement, target)
+}
+
+/// Atomically create `target` without ever replacing an entry that already
+/// exists. The prepared replacement must be on the same volume as `target`.
+pub fn persist_create_only(replacement: &Path, target: &Path) -> io::Result<()> {
+    imp::persist_create_only(replacement, target)
 }
 
 #[cfg(windows)]
@@ -84,6 +89,25 @@ mod imp {
         Ok(())
     }
 
+    pub fn persist_create_only(replacement: &Path, target: &Path) -> io::Result<()> {
+        let source = wide(replacement)?;
+        let destination = wide(target)?;
+
+        // No REPLACE_EXISTING flag: if another process created target after
+        // approval, Windows returns an error and preserves that file.
+        let moved = unsafe {
+            MoveFileExW(
+                source.as_ptr(),
+                destination.as_ptr(),
+                MOVEFILE_WRITE_THROUGH,
+            )
+        };
+        if moved == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
     fn wide(path: &Path) -> io::Result<Vec<u16>> {
         let mut buffer: Vec<u16> = path.as_os_str().encode_wide().collect();
         if buffer.contains(&0) {
@@ -105,6 +129,13 @@ mod imp {
     pub fn persist(replacement: &Path, target: &Path) -> io::Result<()> {
         // On Unix, rename(2) is atomic and replaces the destination.
         std::fs::rename(replacement, target)
+    }
+
+    pub fn persist_create_only(replacement: &Path, target: &Path) -> io::Result<()> {
+        // The files are prepared in the same directory. link(2) creates the
+        // destination atomically and fails with EEXIST rather than clobbering
+        // a file that appeared after approval. The caller removes replacement.
+        std::fs::hard_link(replacement, target)
     }
 }
 
@@ -138,5 +169,32 @@ mod tests {
 
         assert_eq!(fs::read_to_string(&target).unwrap(), "fresh");
         assert!(!replacement.exists());
+    }
+
+    #[test]
+    fn create_only_refuses_to_replace_an_unexpected_target() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("target.txt");
+        let replacement = temp.path().join("replacement.txt");
+        fs::write(&target, "created during approval").unwrap();
+        fs::write(&replacement, "model contents").unwrap();
+
+        assert!(persist_create_only(&replacement, &target).is_err());
+        assert_eq!(
+            fs::read_to_string(&target).unwrap(),
+            "created during approval"
+        );
+    }
+
+    #[test]
+    fn create_only_creates_a_missing_target() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("created.txt");
+        let replacement = temp.path().join("replacement.txt");
+        fs::write(&replacement, "fresh").unwrap();
+
+        persist_create_only(&replacement, &target).unwrap();
+
+        assert_eq!(fs::read_to_string(&target).unwrap(), "fresh");
     }
 }

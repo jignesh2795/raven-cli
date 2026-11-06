@@ -237,8 +237,6 @@ async fn cmd_run(args: RunArgs, config_path: Option<PathBuf>) -> Result<ExitCode
         args.model.clone(),
         args.api_key_env.clone(),
     )?;
-    let api_key = auth::resolve_key(&resolved, args.api_key_env.as_deref())?;
-
     let max_turns = args
         .max_turns
         .unwrap_or_else(|| cfg.effective_max_turns())
@@ -288,6 +286,9 @@ async fn cmd_run(args: RunArgs, config_path: Option<PathBuf>) -> Result<ExitCode
         let cassette = raven_provider::Cassette::load(path)?;
         Arc::new(raven_provider::CassetteProvider::new(cassette))
     } else {
+        // Replay uses only its cassette and must not require credentials or
+        // initialize a live provider.
+        let api_key = auth::resolve_key(&resolved, args.api_key_env.as_deref())?;
         let mut provider = OpenAiProvider::new(
             provider_name.clone(),
             resolved.base_url.clone(),
@@ -379,9 +380,9 @@ async fn cmd_run(args: RunArgs, config_path: Option<PathBuf>) -> Result<ExitCode
     // partial session is still worth replaying when debugging a failure.
     if let Some(recorder) = recorder {
         if let Err(error) = recorder.flush() {
-            if !args.json {
-                eprintln!("raven: {error}");
-            }
+            // Diagnostics belong on stderr in both modes; stdout stays a
+            // machine-readable JSONL stream when --json is enabled.
+            eprintln!("raven: cassette recording failed: {error}");
         }
     }
 

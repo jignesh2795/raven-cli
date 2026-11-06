@@ -200,7 +200,7 @@ impl Recorder {
             entries,
         }
         .save(&self.path)?;
-        println!("recorded {count} response(s) to {}", self.path.display());
+        eprintln!("recorded {count} response(s) to {}", self.path.display());
         Ok(())
     }
 }

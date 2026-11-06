@@ -94,7 +94,7 @@ impl Tool for CreateFileTool {
             )));
         }
 
-        write_support::atomic_write(&path, bytes)?;
+        write_support::atomic_create(&path, bytes)?;
 
         let after = std::fs::read(&path)?;
         if write_support::sha256_hex(&after) != after_sha {

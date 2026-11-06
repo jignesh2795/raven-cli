@@ -236,9 +236,14 @@ raven trust --revoke        # stop honoring it
 Trust is stored per workspace and pinned to the SHA-256 of the exact file you
 reviewed, so editing `raven.toml` invalidates trust and the file is ignored
 again until you re-trust it. Granting requires a terminal; a non-interactive run
-fails closed. A trusted project file can fill in settings you have not set —
-model, endpoint, `max_turns`, `policy` — but can never override your own config,
-and it cannot change where your API key comes from. `raven doctor` reports
+fails closed. A trusted project file can supply safe defaults such as
+`max_turns` and `policy`, add a custom provider, or fill unset non-credential
+fields on a provider you explicitly configured. It cannot choose
+`default_provider`, replace a built-in provider preset, set `api_key_env`,
+override pricing, or change redaction. Credential sources remain user-owned:
+`RAVEN_API_KEY`, the user-configured provider environment variable, or the
+provider's Windows Credential Manager entry. `raven doctor` reports whether a
+project file is being used.`raven doctor` reports
 whether a project file is being used.
 
 ## Sessions and audit

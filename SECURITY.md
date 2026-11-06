@@ -71,21 +71,24 @@ reports the actual backend and its limits.
 3. **Project config needs explicit trust.** A project-local `raven.toml` is
    ignored until you run `raven trust --grant` for that workspace. Trust is
    pinned to the SHA-256 of the exact file you reviewed, so editing the file
-   invalidates it. Granting requires a terminal and fails closed otherwise. A
-   trusted project file may fill in settings you left unset but never overrides
-   your own config, and it cannot change which environment variable or keyring
-   entry supplies the key. `raven doctor` reports whether a project file is in
-   use and the session log records the decision. This is a process-level
-   control: a malicious process running as you can edit `trust.json`.
+   invalidates it. Granting requires a terminal and fails closed otherwise.
+   Project config may add a custom provider or fill unset non-credential fields
+   on a provider explicitly configured by the user. It cannot choose
+   `default_provider`, replace a built-in provider preset, set `api_key_env`,
+   override pricing, or change redaction. Credential source selection remains
+   user-owned. `raven doctor` reports whether a project file is in use and the
+   session log records the decision. This is a process-level control: a
+   malicious process running as you can edit `trust.json`.
 4. **Credential handling.** `raven auth set` stores keys in Windows Credential
    Manager (service `raven-cli`). Keys are not written to `raven.toml` or the
    event log.
 5. **Redaction before egress and persistence.** Common API keys, JWTs, bearer
    tokens, private keys, and URL credentials are redacted before tool results
    are sent to the provider, written to the event log, rendered, or shown in an
-   approval diff. This is pattern-based and best-effort. `redact = false` turns
-   this off entirely; it is a debugging escape hatch, not a supported
-   production setting.
+   approval diff. This is pattern-based and best-effort. A user-owned
+   `redact = false` setting turns this off entirely; it is a debugging escape
+   hatch, not a supported production setting. Project-local config cannot
+   disable redaction.
 6. **Terminal safety.** ANSI CSI/OSC and other control characters are stripped
    from file content, tool output, and streamed model text before it reaches the
    terminal or JSON output.
