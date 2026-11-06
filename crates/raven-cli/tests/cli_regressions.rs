@@ -464,9 +464,9 @@ fn doctor_sanitizes_provider_config_before_terminal_display() {
         &config,
         r#"
 default_provider = "mock"
-[providers."mock\\u001b[31mBAD"]
-base_url = "https://example.invalid/\\u001b]0;owned\\u0007"
-model = "model\\u001b[31mBAD"
+[providers."mock\u001b[31mBAD"]
+base_url = "https://example.invalid/\u001b]0;owned\u0007"
+model = "model\u001b[31mBAD"
 api_key_env = "UNUSED_TEST_API_KEY"
 "#,
     )
@@ -483,7 +483,7 @@ api_key_env = "UNUSED_TEST_API_KEY"
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        !stdout.contains('\\u{1b}'),
+        !stdout.contains('\u{1b}'),
         "doctor emitted a terminal escape from provider config: {stdout:?}"
     );
     assert!(
