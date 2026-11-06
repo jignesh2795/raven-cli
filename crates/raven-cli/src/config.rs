@@ -179,7 +179,7 @@ impl Config {
         for (name, project_provider) in &project.providers {
             // A project cannot replace a built-in provider preset merely by
             // adding a same-named entry to its raven.toml.
-            if preset(name).is_some() && !self.providers.contains_key(name) {
+            if preset(name).is_some() {
                 continue;
             }
 
@@ -523,6 +523,9 @@ model = "user-model"
 api_key_env = "USER_API_KEY"
 stream_usage = true
 
+[providers.openai]
+api_key_env = "USER_OPENAI_API_KEY"
+
 [pricing."user-model"]
 input_per_mtok = 5.0
 output_per_mtok = 7.0
@@ -580,7 +583,7 @@ cached_input_per_mtok = 0.0
         let openai = config.resolve_provider("openai", None, None, None).unwrap();
         assert_eq!(openai.base_url, "https://api.openai.com/v1");
         assert_eq!(openai.model, "gpt-4.1");
-        assert_eq!(openai.api_key_env.as_deref(), Some("OPENAI_API_KEY"));
+        assert_eq!(openai.api_key_env.as_deref(), Some("USER_OPENAI_API_KEY"));
 
         let local = config.resolve_provider("local", None, None, None).unwrap();
         assert_eq!(local.base_url, "http://127.0.0.1:8780/v1");
