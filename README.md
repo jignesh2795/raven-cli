@@ -242,8 +242,10 @@ fields on a provider you explicitly configured. It cannot choose
 `default_provider`, replace a built-in provider preset, set `api_key_env`,
 override pricing, or change redaction. Credential sources remain user-owned:
 `RAVEN_API_KEY`, the user-configured provider environment variable, or the
-provider's Windows Credential Manager entry. `raven doctor` reports whether a
-project file is being used.
+provider's Windows Credential Manager entry. A project-supplied
+`base_url` is a credential destination: when you select that provider, Raven
+sends its resolved key to that endpoint. Review provider URLs before granting
+trust. `raven doctor` reports whether a project file is being used.
 
 ## Sessions and audit
 
