@@ -73,7 +73,7 @@ impl ConsoleObserver {
 
 impl Observer for ConsoleObserver {
     fn on_text(&self, text: &str) {
-        let text = sanitize_text(text);
+        let text = self.redactor.redact(&sanitize_text(text));
         if self.json {
             emit(json!({ "v": 1, "type": "text_delta", "text": text }));
             return;
@@ -105,7 +105,7 @@ impl Observer for ConsoleObserver {
     }
 
     fn on_tool_result(&self, name: &str, ok: bool, summary: &str) {
-        let name = sanitize_text(name);
+        let name = self.redactor.redact(&sanitize_text(name));
         let summary = self.redactor.redact(&sanitize_text(summary));
         if self.json {
             emit(json!({
