@@ -491,8 +491,8 @@ api_key_env = "UNUSED_TEST_API_KEY"
         "provider name should remain readable after sanitization: {stdout}"
     );
     assert!(
-        stdout.contains("modelBAD"),
-        "provider model should remain readable after sanitization: {stdout}"
+        stdout.contains("example.invalid"),
+        "provider endpoint should remain readable after sanitization: {stdout}"
     );
 }
 
