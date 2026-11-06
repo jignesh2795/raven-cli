@@ -295,11 +295,21 @@ fn terminal_safe_endpoint(value: &str) -> String {
     let Ok(mut url) = url::Url::parse(&sanitized) else {
         return terminal_safe(&sanitized);
     };
+    let omitted_sensitive_parts = !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some();
     let _ = url.set_username("");
     let _ = url.set_password(None);
     url.set_query(None);
     url.set_fragment(None);
-    terminal_safe(url.as_str())
+
+    let endpoint = terminal_safe(url.as_str());
+    if omitted_sensitive_parts {
+        format!("{endpoint} [REDACTED URL USERINFO/QUERY]")
+    } else {
+        endpoint
+    }
 }
 
 fn fmt_opt<T: std::fmt::Display>(value: Option<T>) -> String {
