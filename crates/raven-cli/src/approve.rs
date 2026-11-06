@@ -2,7 +2,7 @@ use std::io::{IsTerminal, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
-use raven_core::redact::{sanitize_text, truncate_utf8, Redactor};
+use raven_core::redact::{sanitize_text, truncate_utf8};
 use raven_core::tool::{ApprovalRequest, Approver, Decision};
 
 const MAX_DISPLAY_LINE_CHARS: usize = 400;
@@ -37,9 +37,8 @@ impl ConsoleApprover {
 
     fn render(&self, request: &ApprovalRequest, auto: bool) {
         let mut stderr = std::io::stderr().lock();
-        let redactor = Redactor::default();
-        let summary = redactor.redact(&sanitize_text(&request.summary));
-        let diff = redactor.redact(&sanitize_text(&request.diff));
+        let summary = sanitize_text(&request.summary);
+        let diff = sanitize_text(&request.diff);
         let _ = writeln!(stderr, "\n{}", self.paint("1", &summary));
         for line in diff.lines() {
             let (line, _) = truncate_utf8(line, MAX_DISPLAY_LINE_CHARS);
