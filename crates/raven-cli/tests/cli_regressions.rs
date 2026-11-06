@@ -507,11 +507,11 @@ fn show_and_sessions_sanitize_persistent_metadata_and_event_summaries() {
     let now = "2026-11-06T15:00:00Z";
     let meta = serde_json::json!({
         "id": session_id,
-        "workspace": "\u001b]0;owned\u0007C:/workspace",
-        "provider": "provider\u001b[31m",
-        "model": "model\u001b[0m",
+        "workspace": "\u{001b}]0;owned\u{0007}C:/workspace",
+        "provider": "provider\u{001b}[31m",
+        "model": "model\u{001b}[0m",
         "policy": "read-only",
-        "status": "completed\u001b[31m",
+        "status": "completed\u{001b}[31m",
         "turns": 1,
         "usage": {
             "input_tokens": 1,
@@ -533,8 +533,8 @@ fn show_and_sessions_sanitize_persistent_metadata_and_event_summaries() {
         session_id,
         1,
         EventKind::Notice,
-        "\u001b[31mred summary\u001b[0m",
-        serde_json::json!({ "message": "\u001b]0;hidden\u0007" }),
+        "\u{001b}[31mred summary\u{001b}[0m",
+        serde_json::json!({ "message": "\u{001b}]0;hidden\u{0007}" }),
         GENESIS_HASH,
     );
     std::fs::write(
