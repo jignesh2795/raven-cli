@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+use raven_core::redact::{sanitize_text, Redactor};
 use raven_core::Result;
 
 use crate::auth;
@@ -20,11 +21,11 @@ pub fn run(config_path: Option<PathBuf>) -> Result<()> {
     );
     println!(
         "config:    {} [{}]",
-        path.display(),
+        terminal_safe(&path.display().to_string()),
         if path.exists() { "found" } else { "not found" }
     );
-    println!("data:      {}", data.display());
-    println!("workspace: {}", workspace.display());
+    println!("data:      {}", terminal_safe(&data.display().to_string()));
+    println!("workspace: {}", terminal_safe(&workspace.display().to_string()));
     println!(
         "policy:    {} (edits require approval unless --yes)",
         config.effective_policy().label()
@@ -54,8 +55,8 @@ pub fn run(config_path: Option<PathBuf>) -> Result<()> {
         let resolved = config.resolve_provider(&name, None, None, None);
         let endpoint = resolved
             .as_ref()
-            .map(|provider| provider.base_url.clone())
-            .unwrap_or_else(|error| format!("<{error}>"));
+            .map(|provider| terminal_safe(&provider.base_url))
+            .unwrap_or_else(|error| terminal_safe(&format!("<{error}>")));
         let env_name = resolved
             .as_ref()
             .ok()
@@ -73,7 +74,7 @@ pub fn run(config_path: Option<PathBuf>) -> Result<()> {
         } else {
             "missing"
         };
-        println!("  {name:<10} {credential:<20} {endpoint}");
+        println!("  {:<10} {credential:<20} {endpoint}", terminal_safe(&name));
     }
 
     println!("\nsandbox:");
@@ -95,16 +96,21 @@ pub fn run(config_path: Option<PathBuf>) -> Result<()> {
 fn describe(result: &raven_sandbox::ProbeResult) -> String {
     match result {
         raven_sandbox::ProbeResult::Available => "available".into(),
-        raven_sandbox::ProbeResult::Unavailable(reason) => format!("unavailable: {reason}"),
-        raven_sandbox::ProbeResult::Unknown(reason) => format!("unknown: {reason}"),
-        raven_sandbox::ProbeResult::Planned(reason) => format!("planned: {reason}"),
+        raven_sandbox::ProbeResult::Unavailable(reason) => format!("unavailable: {}", terminal_safe(reason)),
+        raven_sandbox::ProbeResult::Unknown(reason) => format!("unknown: {}", terminal_safe(reason)),
+        raven_sandbox::ProbeResult::Planned(reason) => format!("planned: {}", terminal_safe(reason)),
     }
+}
+
+
+fn terminal_safe(input: &str) -> String {
+    Redactor::default().redact(&sanitize_text(input))
 }
 
 fn git_version() -> String {
     match Command::new("git").arg("--version").output() {
         Ok(output) if output.status.success() => {
-            String::from_utf8_lossy(&output.stdout).trim().to_string()
+            terminal_safe(String::from_utf8_lossy(&output.stdout).trim())
         }
         _ => "not found (git integration is not used in M0)".into(),
     }
