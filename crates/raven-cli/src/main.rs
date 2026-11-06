@@ -17,7 +17,7 @@ use clap::{Args, Parser, Subcommand};
 use raven_core::agent::{Agent, AgentConfig, Observer, RunSummary};
 use raven_core::cost::CostTracker;
 use raven_core::policy::{PathPolicy, Policy, PolicyMode};
-use raven_core::redact::Redactor;
+use raven_core::redact::{sanitize_text, Redactor};
 use raven_core::tool::Approver;
 use raven_core::{Error, Result};
 use raven_provider::OpenAiProvider;
@@ -158,7 +158,7 @@ async fn main() -> ExitCode {
             ExitCode::from(130)
         }
         Err(error) => {
-            eprintln!("raven: {error}");
+            eprintln!("raven: {}", sanitize_text(&error.to_string()));
             ExitCode::from(error.exit_code())
         }
     }
@@ -332,11 +332,13 @@ async fn cmd_run(args: RunArgs, config_path: Option<PathBuf>) -> Result<ExitCode
             "policy": policy_mode.label(),
         }));
     } else {
+        let model_display = sanitize_text(&resolved.model);
+        let workspace_display = sanitize_text(&workspace.to_string_lossy());
         eprintln!(
             "{} · {} · {} · {}\n",
             store.session_id(),
-            resolved.model,
-            workspace.display(),
+            model_display,
+            workspace_display,
             policy_mode.label()
         );
     }
