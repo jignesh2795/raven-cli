@@ -83,7 +83,11 @@ fn print_meta(meta: &SessionMeta) {
         terminal_safe(&meta.model)
     );
     println!("policy:    {}", terminal_safe(&meta.policy));
-    println!("status:    {} · {} turns", terminal_safe(&meta.status), meta.turns);
+    println!(
+        "status:    {} · {} turns",
+        terminal_safe(&meta.status),
+        meta.turns
+    );
     println!(
         "usage:     {} in / {} out ({} cached)",
         meta.usage.input_tokens, meta.usage.output_tokens, meta.usage.cached_input_tokens
